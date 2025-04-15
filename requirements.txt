@@ -7,3 +7,5 @@ nltk # this is for the language detection
 farasa # this is for the language detection
 sentence-transformers # this is for the embedding model
 python-magic # this is for the file type detection
+azure-ai-formrecognizer
+azure-core

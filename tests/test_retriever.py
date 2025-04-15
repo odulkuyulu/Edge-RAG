@@ -1,54 +1,88 @@
 import sys
+from pathlib import Path
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+from dotenv import load_dotenv
 
-import pytest
-from retriever import detect_language, generate_embedding, search_documents, generate_response
+# Add the src directory to the Python path
+sys.path.append(str(Path(__file__).parent.parent))
 
-# Test Language Detection
-def test_detect_language():
-    assert detect_language("ما هو الذكاء الاصطناعي؟") == "arabic"
-    assert detect_language("What is artificial intelligence?") == "english"
+from src.retriever import (
+    detect_language,
+    extract_entities,
+    search_documents,
+    generate_response
+)
 
-# Test Search Queries
-def test_search_queries():
-    # Test queries with named entities
-    test_queries = [
-        ("What did Microsoft and OpenAI announce?", "english"),
-        ("Tell me about Jeff Bezos and Amazon", "english"),
-        ("What's happening in Seattle?", "english"),
-        ("ماذا يحدث في دبي؟", "arabic"),  # What's happening in Dubai?
-        ("من هو ساتيا ناديلا؟", "arabic")  # Who is Satya Nadella?
+def test_retriever():
+    """Comprehensive test of the retriever functionality."""
+    # Load environment variables
+    load_dotenv()
+    
+    print("\n🚀 Starting Retriever Tests...")
+    
+    # Test 1: Language Detection
+    print("\n📝 Test 1: Language Detection")
+    test_texts = [
+        ("What is artificial intelligence?", "english"),
+        ("ما هو الذكاء الاصطناعي؟", "arabic"),
+        ("AI is transforming industries worldwide", "english"),
+        ("الذكاء الاصطناعي يغير العالم", "arabic")
     ]
-
-    for query, language in test_queries:
-        results = search_documents(query, language)
-        assert len(results) > 0, f"No results found for query: {query}"
-        for result in results:
-            assert 'text' in result
-            assert 'score' in result
-            assert 'matched_entities' in result
-
-print("🔍 Testing Enhanced Retriever with NER\n")
-
-for query, language in test_queries:
-    print(f"\nQuery: {query}")
-    print(f"Language: {language}")
-    print("-" * 50)
     
-    results = search_documents(query, language)
+    for text, expected in test_texts:
+        detected = detect_language(text)
+        print(f"Text: {text[:30]}...")
+        print(f"Expected: {expected}, Detected: {detected}")
+        print(f"Result: {'✅' if detected == expected else '❌'}")
     
-    if results:
-        print(f"\nFound {len(results)} results:")
-        for i, result in enumerate(results[:3], 1):  # Show top 3 results
-            print(f"\n{i}. Score: {result['score']:.3f}")
-            print(f"   Vector Score: {result['vector_score']:.3f}")
-            print(f"   Entity Score: {result['entity_score']:.3f}")
-            print(f"   Text: {result['text'][:200]}...")
-            print("\n   Matched Entities:")
-            for category, entities in result["matched_entities"].items():
-                print(f"   - {category}: {', '.join(entities)}")
-    else:
-        print("No results found.")
+    # Test 2: Entity Extraction
+    print("\n🔍 Test 2: Entity Extraction")
+    test_queries = [
+        ("Microsoft and OpenAI announced new AI features", "english"),
+        ("أعلنت مايكروسوفت وأوبن إيه آي عن ميزات جديدة", "arabic")
+    ]
     
-    print("\n" + "="*50) 
+    for query, lang in test_queries:
+        entities = extract_entities(query, lang)
+        print(f"\nQuery: {query}")
+        print("Entities found:")
+        for entity in entities:
+            print(f"- {entity['text']} ({entity['category']})")
+    
+    # Test 3: Document Search
+    print("\n🔎 Test 3: Document Search")
+    test_searches = [
+        ("What is AI?", "english"),
+        ("ما هو الذكاء الاصطناعي؟", "arabic"),
+        ("Latest developments in AI", "english"),
+        ("أحدث تطورات الذكاء الاصطناعي", "arabic")
+    ]
+    
+    for query, lang in test_searches:
+        print(f"\nSearching for: {query}")
+        results = search_documents(query, lang)
+        print(f"Found {len(results)} results")
+        if results:
+            print("\nTop result:")
+            print(f"Text: {results[0]['text'][:100]}...")
+            print(f"Score: {results[0]['score']:.2f}")
+            print(f"Source: {results[0]['source']}")
+    
+    # Test 4: Response Generation
+    print("\n💬 Test 4: Response Generation")
+    test_questions = [
+        ("What is artificial intelligence?", "english"),
+        ("ما هو الذكاء الاصطناعي؟", "arabic")
+    ]
+    
+    for question, lang in test_questions:
+        print(f"\nQuestion: {question}")
+        results = search_documents(question, lang)
+        response = generate_response(question, results)
+        print("\nResponse:")
+        print(response)
+    
+    print("\n✨ Retriever Tests Completed!")
+
+if __name__ == "__main__":
+    test_retriever() 

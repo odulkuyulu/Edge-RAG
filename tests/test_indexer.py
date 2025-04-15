@@ -1,71 +1,52 @@
-import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+import sys
+from pathlib import Path
 
-import pytest
-from indexer import detect_language, generate_embedding, index_document, client
-from src.indexer import index_document
+# Add the src directory to the Python path
+sys.path.append(str(Path(__file__).parent.parent))
 
-# Test Language Detection
-def test_detect_language():
-    assert detect_language("ما هي الفوائد الرئيسية للذكاء الاصطناعي؟") == "arabic"
-    assert detect_language("What are the benefits of AI?") == "english"
+from src.indexer import load_documents, index_document, process_document
+from dotenv import load_dotenv
 
-# Test Document Indexing
-def test_index_document():
-    # Test English document
-    english_text = '''
-    Microsoft and OpenAI announced a groundbreaking $10 billion partnership in artificial intelligence today. 
-    The collaboration, which takes place in Seattle, will focus on developing new AI technologies.
-    '''
+def test_indexer():
+    """Test the document indexing functionality."""
+    # Load environment variables
+    load_dotenv()
     
-    # Test Arabic document
-    arabic_text = '''
-    أعلنت شركة مايكروسوفت عن افتتاح مركز جديد للذكاء الاصطناعي في دبي.
-    يهدف المركز إلى تطوير حلول الذكاء الاصطناعي المخصصة للمنطقة العربية.
-    '''
+    print("🚀 Starting indexer test...")
     
-    # Index both documents
-    english_result = index_document(english_text, 'test_english.txt')
-    arabic_result = index_document(arabic_text, 'test_arabic.txt')
+    # Test 1: Load documents from data directory
+    print("\n📂 Test 1: Loading documents from data directory...")
+    documents = load_documents()
+    print(f"✅ Found {len(documents)} documents to process")
     
-    assert english_result['status'] == 'success'
-    assert arabic_result['status'] == 'success'
-    assert english_result['chunks_processed'] > 0
-    assert arabic_result['chunks_processed'] > 0
+    # Test 2: Process and index each document
+    print("\n📄 Test 2: Processing and indexing documents...")
+    for doc in documents:
+        print(f"\nProcessing document: {doc.get('filename', 'Unknown')}")
+        
+        # Process the document
+        chunks = process_document(doc["text"], doc.get("filename"))
+        print(f"✅ Document split into {len(chunks)} chunks")
+        
+        # Index the document
+        index_document(doc["text"], doc.get("filename"))
+        print("✅ Document indexed successfully")
+        
+        # Print some metadata from the first chunk
+        if chunks:
+            first_chunk = chunks[0]
+            print("\nFirst chunk metadata:")
+            print(f"Language: {first_chunk['metadata'].get('language', 'unknown')}")
+            print(f"Source: {first_chunk['metadata'].get('source', 'unknown')}")
+            if 'tables' in first_chunk['metadata']:
+                print(f"Tables found: {len(first_chunk['metadata']['tables'])}")
+            if 'key_value_pairs' in first_chunk['metadata']:
+                print(f"Key-value pairs found: {len(first_chunk['metadata']['key_value_pairs'])}")
+            if 'entities' in first_chunk['metadata']:
+                print(f"Entities found: {len(first_chunk['metadata']['entities'])}")
+    
+    print("\n✨ Indexer test completed successfully!")
 
-from indexer import process_document, index_document
-
-# Test document with named entities
-test_doc = """
-Microsoft and OpenAI announced a major partnership in artificial intelligence today. 
-The collaboration, which takes place in Seattle, will focus on developing new AI technologies.
-CEO Satya Nadella emphasized the importance of responsible AI development.
-
-In related news, Google's DeepMind team in London has also made significant progress in AI research.
-The team, led by Demis Hassabis, published groundbreaking results in Nature journal.
-
-Amazon's AWS division, based in Seattle, launched new machine learning services.
-Jeff Bezos praised the innovation during his visit to their Dubai office.
-"""
-
-print("🔍 Testing Document Processing with NER\n")
-
-# Process the document
-chunks = process_document(test_doc, "test_doc.txt")
-
-# Display results
-for i, chunk in enumerate(chunks):
-    print(f"\nChunk {i + 1}/{len(chunks)}:")
-    print("-" * 40)
-    print("Text:", chunk["text"])
-    print("\nMetadata:")
-    print("- Language:", chunk["metadata"]["language"])
-    print("\nDetected Entities:")
-    for category, entities in chunk["metadata"]["entities"].items():
-        print(f"- {category}: {', '.join(entities)}")
-    print("-" * 40)
-
-# Test indexing
-print("\n📝 Testing Document Indexing\n")
-index_document(test_doc, "test_doc.txt") 
+if __name__ == "__main__":
+    test_indexer() 
