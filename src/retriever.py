@@ -248,8 +248,8 @@ def search_documents(query: str, language: str) -> List[Dict[str, Any]]:
         search_results = client.search(
             collection_name=collection_name,
             query_vector=query_embedding,
-            limit=20,  # Increased limit
-            score_threshold=0.01  # Very low threshold to ensure we get results
+            limit=10,  # Reduced limit for more focused results
+            score_threshold=0.1  # Higher threshold for better quality
         )
         
         print(f"Found {len(search_results)} potential matches")
@@ -273,7 +273,7 @@ def search_documents(query: str, language: str) -> List[Dict[str, Any]]:
         # Sort by score and return top results
         results.sort(key=lambda x: x["score"], reverse=True)
         print(f"Returning {len(results)} results")
-        return results
+        return results[:5]  # Return only top 5 most relevant results
 
     except Exception as e:
         print(f"Error searching documents: {e}")
@@ -299,44 +299,68 @@ def generate_response(query: str, results: List[Dict[str, Any]]) -> str:
         
         if not results:
             print("No results found to generate response")
-            return "I apologize, but I couldn't find any relevant information in the available documents."
+            return "لم أتمكن من العثور على معلومات محددة حول هذا الموضوع في الوثائق المتاحة"
         
-        # Prepare context from search results
-        context_parts = []
-        for i, result in enumerate(results):
-            source_info = f"Source {i+1} (Score: {result.get('score', 0):.2f}, Document: {result.get('source', 'unknown')}, Chunk {result.get('chunk_index', 0)+1}/{result.get('total_chunks', 0)}):\n"
-            context_parts.append(source_info + result.get('text', ''))
-        
-        context = "\n\n".join(context_parts)
+        # Prepare context from the most relevant source only
+        best_result = results[0]  # Use only the highest scoring result
+        context = f"Source (Score: {best_result.get('score', 0):.2f}, Document: {best_result.get('source', 'unknown')}):\n{best_result.get('text', '')}"
         print("Context prepared for response generation")
 
-        # Use appropriate model based on language
-        model = "phi4-mini:3.8b"
+        # Use gemma3:1b model for both languages
+        model = "gemma3:1b"
         print(f"Using model: {model}")
+
+        # Determine if the query is in Arabic
+        is_arabic = any('\u0600' <= char <= '\u06FF' for char in query)
 
         # Generate response using Ollama
         response = ollama.chat(
             model=model,
             messages=[{
+                "role": "system",
+                "content": """أنت مساعد ذكي دقيق. مهمتك هي تقديم إجابة واضحة ومباشرة بناءً على المصدر المقدم. يجب أن ترد بنفس لغة السؤال ولا تضيف أي معلومات غير موجودة في المصدر. لا تكرر السؤال في الإجابة. استخدم لغة عربية واضحة وسهلة الفهم."""
+            } if is_arabic else {
+                "role": "system",
+                "content": """You are a precise fact-checking assistant. Your task is to provide a single, clear answer based on the provided source. Respond in the same language as the question. Do not add any information not present in the source. Do not repeat the question in your answer."""
+            },
+            {
                 "role": "user",
-                "content": f"""You are a precise AI assistant. Your task is to answer ONLY the specific question asked, using ONLY the most relevant information from the provided context.
+                "content": f"""بناءً على المصدر التالي، قدم إجابة مباشرة على السؤال. استخدم فقط المعلومات الواردة في هذا المصدر ورد بنفس لغة السؤال.
+
+السؤال: {query}
+
+المصدر:
+{context}
+
+تنسيق الإجابة:
+- يجب أن تكون الإجابة جملة واحدة
+- استخدم فقط المعلومات من هذا المصدر
+- رد بنفس لغة السؤال
+- لا تكرر السؤال في الإجابة
+- لا تضيف أي معلومات غير موجودة في المصدر
+- لا تذكر مصادر أو معلومات أخرى
+- استخدم لغة عربية واضحة وسهلة الفهم
+- إذا لم يتم العثور على معلومات ذات صلة، قل "لم أتمكن من العثور على معلومات محددة حول هذا الموضوع في الوثائق المتاحة"
+
+مثال على الإجابة الصحيحة:
+السؤال: ما هي قيمة شراكة مايكروسوفت وG42 في الإمارات؟
+الإجابة: أعلنت مايكروسوفت عن استثمار بقيمة 1.5 مليار دولار في شراكة مع G42 لتطوير الذكاء الاصطناعي في الإمارات.
+
+الإجابة:""" if is_arabic else f"""Based on the following source, provide a direct answer to the question. Use only the information provided in this source and respond in the same language as the question.
 
 Question: {query}
 
-Context:
+Source:
 {context}
 
-Strict Response Rules:
-1. Answer ONLY the exact question asked - do not add any additional information
-2. Use ONLY the most relevant facts from the context that directly answer the question
-3. If the context contains multiple pieces of information, use ONLY the most relevant one
-4. Do not combine or mix information from different sources
-5. Do not add any background information, context, or explanations
-6. Keep the response to 1-2 sentences maximum
-7. If you cannot find a direct answer in the context, say "I couldn't find specific information about this in the available documents."
-
-Example format for "What did Microsoft and OpenAI announce recently?":
-"Microsoft announced a $10 billion investment in OpenAI to accelerate AI development."
+Answer format:
+- Answer must be a single sentence
+- Use only the information from this source
+- Respond in the same language as the question
+- Do not repeat the question in your answer
+- Do not add any information not in the source
+- Do not mention other sources or information
+- If the source doesn't contain relevant information, say "I couldn't find specific information about this in the available documents."
 
 Answer:"""
             }]
@@ -347,7 +371,7 @@ Answer:"""
 
     except Exception as e:
         print(f"Error generating response: {e}")
-        return "I apologize, but there was an error processing your request."
+        return "عذراً، حدث خطأ أثناء معالجة طلبك" if is_arabic else "I apologize, but there was an error processing your request."
 
 def verify_response(response: str, context: str) -> bool:
     """Verify that the response is based on the provided context."""
