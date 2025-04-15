@@ -439,17 +439,7 @@ def process_document(content: Union[str, bytes], filename: str = None) -> List[D
 # ================================
 
 def index_document(file_path: str, content: Union[str, bytes], metadata: Dict[str, Any] = None) -> bool:
-    """
-    Indexes a document in Qdrant after processing it.
-    
-    Args:
-        file_path: Path to the document
-        content: Document content (string or bytes)
-        metadata: Additional metadata to store with the document
-        
-    Returns:
-        bool: True if indexing was successful, False otherwise
-    """
+    """Indexes a document in Qdrant after processing it."""
     try:
         # Ensure metadata is a dictionary
         if metadata is None:
@@ -459,29 +449,61 @@ def index_document(file_path: str, content: Union[str, bytes], metadata: Dict[st
         if "source" not in metadata:
             metadata["source"] = os.path.basename(file_path)
         
-        # Process text content
-        if isinstance(content, bytes):
-            try:
-                text = content.decode('utf-8')
-            except UnicodeDecodeError:
-                text = content.decode('latin-1')
+        print(f"Processing document: {metadata['source']}")
+        
+        # Process document with Document Intelligence if it's a PDF
+        if file_path.lower().endswith('.pdf'):
+            print("PDF detected, using Document Intelligence...")
+            doc_intelligence_result = process_with_document_intelligence(file_path)
+            if doc_intelligence_result:
+                print("Document Intelligence processing successful")
+                text = doc_intelligence_result["text"]
+                metadata.update({
+                    "tables": doc_intelligence_result["tables"],
+                    "key_value_pairs": doc_intelligence_result["key_value_pairs"],
+                    "entities": doc_intelligence_result["entities"],
+                    "metadata": doc_intelligence_result["metadata"]
+                })
+            else:
+                print("Document Intelligence processing failed, falling back to basic text extraction")
+                # Fallback to basic text extraction
+                if isinstance(content, bytes):
+                    try:
+                        text = content.decode('utf-8')
+                    except UnicodeDecodeError:
+                        text = content.decode('latin-1')
+                else:
+                    text = content
         else:
-            text = content
+            # For non-PDF files, use the content directly
+            if isinstance(content, bytes):
+                try:
+                    text = content.decode('utf-8')
+                except UnicodeDecodeError:
+                    text = content.decode('latin-1')
+            else:
+                text = content
         
         # Split text into chunks
         chunks = textwrap.wrap(text, CHUNK_SIZE) if text.strip() else []
+        print(f"Split document into {len(chunks)} chunks")
         
         # Process each chunk
         for i, chunk in enumerate(chunks):
+            print(f"Processing chunk {i+1}/{len(chunks)}")
+            
             # Detect language for the chunk
             language = detect_language(chunk)
+            print(f"Detected language: {language}")
             
             # Extract entities from the chunk
             entities = extract_entities(chunk, language)
+            print(f"Extracted {len(entities)} entities")
             
             # Generate embedding for the chunk
             embedding = generate_embedding(chunk, language)
             if embedding is None:
+                print("Failed to generate embedding, skipping chunk")
                 continue
             
             # Prepare metadata for the chunk
@@ -508,7 +530,9 @@ def index_document(file_path: str, content: Union[str, bytes], metadata: Dict[st
                 collection_name=collection_name,
                 points=[point]
             )
+            print(f"Indexed chunk in collection: {collection_name}")
         
+        print("Document indexing completed successfully")
         return True
         
     except Exception as e:

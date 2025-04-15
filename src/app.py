@@ -6,6 +6,7 @@ import os
 import nltk
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
+import tempfile
 
 # Load environment variables
 load_dotenv()
@@ -89,9 +90,22 @@ with st.sidebar:
                     st.write("Text content read successfully")
                 
                 st.write("Indexing document...")
-                index_document(content, uploaded_file.name)
-                st.success("✅ Document indexed successfully!")
-                st.session_state.documents_indexed = True
+                # Save the file temporarily to get a file path
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as temp_file:
+                    temp_file.write(content)
+                    temp_path = temp_file.name
+                
+                try:
+                    # For PDFs, we need to pass the file path to process with Document Intelligence
+                    if uploaded_file.type == "application/pdf":
+                        index_document(temp_path, content, {"source": uploaded_file.name})
+                    else:
+                        index_document(temp_path, content)
+                    st.success("✅ Document indexed successfully!")
+                    st.session_state.documents_indexed = True
+                finally:
+                    # Clean up the temporary file
+                    os.unlink(temp_path)
         except Exception as e:
             st.error(f"❌ Error processing document: {str(e)}")
             st.error("Please check if Azure Document Intelligence service is running and properly configured.")

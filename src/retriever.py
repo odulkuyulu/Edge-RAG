@@ -229,97 +229,54 @@ def calculate_entity_score(query_entities: List[Dict[str, str]], doc_entities: D
 # -----------------------------------------------
 
 def search_documents(query: str, language: str) -> List[Dict[str, Any]]:
-    """
-    Search for relevant documents using vector similarity.
-    Improved to handle mixed language queries and multiple sources.
-    
-    Args:
-        query: The search query
-        language: The detected language of the query
-        
-    Returns:
-        List[Dict[str, Any]]: List of relevant documents with scores
-    """
+    """Search for relevant documents in both collections."""
     try:
-        # Clean and normalize the query
-        query = query.strip()
+        print(f"Searching for query: {query}")
+        print(f"Language: {language}")
         
-        # Extract entities from the query
-        query_entities = extract_entities(query, language)
-        
-        # Generate embedding for the query
-        embedding = generate_embedding(query, language)
-        if embedding is None:
+        # Generate query embedding
+        query_embedding = generate_embedding(query, language)
+        if query_embedding is None:
+            print("Failed to generate query embedding")
             return []
-        
-        # Search in both collections if mixed language is detected
+
+        # Search in both collections with increased limit
         results = []
+        collection_name = f"rag_docs_{'ar' if language == 'arabic' else 'en'}"
+        print(f"Searching in collection: {collection_name}")
         
-        # Search in Arabic collection
-        arabic_results = client.search(
-            collection_name="rag_docs_ar",
-            query_vector=embedding,
-            limit=5
+        search_results = client.search(
+            collection_name=collection_name,
+            query_vector=query_embedding,
+            limit=20,  # Increased limit
+            score_threshold=0.01  # Very low threshold to ensure we get results
         )
-        for result in arabic_results:
-            payload = result.payload
-            metadata = payload.get("metadata", {})
-            doc_entities = metadata.get("entities", {})
-            
-            # Calculate entity matching score
-            entity_score = calculate_entity_score(query_entities, doc_entities)
-            
-            # Add source type score (prefer text files over PDFs for general queries)
-            source_score = 1.0 if not metadata.get("source", "").lower().endswith('.pdf') else 0.5
-            
-            results.append({
-                "text": payload["text"],
-                "score": result.score * source_score,  # Adjust score based on source type
-                "vector_score": result.score,
-                "source": metadata.get("source", "Unknown"),
-                "language": "arabic",
-                "chunk_id": metadata.get("chunk_id", 0),
-                "total_chunks": metadata.get("total_chunks", 1),
-                "matched_entities": doc_entities,
-                "entity_score": entity_score
-            })
         
-        # Search in English collection
-        english_results = client.search(
-            collection_name="rag_docs_en",
-            query_vector=embedding,
-            limit=5
-        )
-        for result in english_results:
-            payload = result.payload
-            metadata = payload.get("metadata", {})
-            doc_entities = metadata.get("entities", {})
-            
-            # Calculate entity matching score
-            entity_score = calculate_entity_score(query_entities, doc_entities)
-            
-            # Add source type score (prefer text files over PDFs for general queries)
-            source_score = 1.0 if not metadata.get("source", "").lower().endswith('.pdf') else 0.5
-            
-            results.append({
-                "text": payload["text"],
-                "score": result.score * source_score,  # Adjust score based on source type
-                "vector_score": result.score,
-                "source": metadata.get("source", "Unknown"),
-                "language": "english",
-                "chunk_id": metadata.get("chunk_id", 0),
-                "total_chunks": metadata.get("total_chunks", 1),
-                "matched_entities": doc_entities,
-                "entity_score": entity_score
-            })
+        print(f"Found {len(search_results)} potential matches")
         
-        # Sort results by combined score
+        for result in search_results:
+            print(f"Result score: {result.score}")
+            payload = result.payload
+            if payload and "text" in payload:
+                result_data = {
+                    "text": payload["text"],
+                    "score": result.score,
+                    "source": payload.get("metadata", {}).get("source", "unknown"),
+                    "language": language,
+                    "matched_entities": payload.get("metadata", {}).get("entities", {}),
+                    "chunk_index": payload.get("metadata", {}).get("chunk_index", 0),
+                    "total_chunks": payload.get("metadata", {}).get("total_chunks", 0)
+                }
+                results.append(result_data)
+                print(f"Added result from chunk {result_data['chunk_index'] + 1}/{result_data['total_chunks']}")
+
+        # Sort by score and return top results
         results.sort(key=lambda x: x["score"], reverse=True)
-        
-        return results[:10]  # Return top 10 results
-        
+        print(f"Returning {len(results)} results")
+        return results
+
     except Exception as e:
-        logger.error(f"Error in search_documents: {str(e)}")
+        print(f"Error searching documents: {e}")
         return []
 
 # -----------------------------------------------
@@ -334,130 +291,131 @@ def clean_ai_response(text, language):
 # 🔹 Function: Generate AI Response
 # -----------------------------------------------
 
-def generate_response(query, results, max_length=512, temperature=0.9, top_k=40, repetition_penalty=1.0):
-    """Generates a response using the appropriate LLM model based on detected language and retrieved documents."""
-    language = detect_language(query)
-    model_name = "gemma3:1b" if language == "arabic" else "phi4-mini:3.8b"
-
-    # Prepare context from retrieved documents - improved formatting
-    context_parts = []
-    for i, doc in enumerate(results[:3]):
-        # Format the source with complete text and metadata
-        source_text = f"Source {i+1} (Score: {doc.get('score', 0):.2f}, Document: {doc.get('source', 'Unknown')}):\n{doc.get('text', '')}"
-        
-        # Handle matched entities safely
-        matched_entities = doc.get('matched_entities', {})
-        if matched_entities and isinstance(matched_entities, dict):
-            entities_text = []
-            for category, entities in matched_entities.items():
-                if isinstance(entities, list):
-                    entities_text.append(f"{category}: {', '.join(entities)}")
-                else:
-                    entities_text.append(f"{category}: {entities}")
-            if entities_text:
-                source_text += f"\nRelevant entities: {'; '.join(entities_text)}"
-        
-        context_parts.append(source_text)
-    
-    context = "\n\n".join(context_parts)
-
-    prompt = f"""
-    You are a precise and helpful AI assistant. Answer the question based on the provided sources.
-
-    Question: {query}
-
-    Available Sources:
-    {context}
-
-    Important Rules:
-    1. Use ONLY information from the provided sources
-    2. Give a direct, concise answer without mentioning sources
-    3. Do not include any references or citations
-    4. Do not mention limitations of the sources
-    5. If information is insufficient, simply state what is known
-    6. Keep the tone professional and informative
-    7. Focus on facts and key information
-    8. Use clear, simple language
-    9. Avoid phrases like "based on the sources" or "according to"
-    10. Do not recommend checking other sources
-
-    Response Guidelines:
-    - Start with the main facts
-    - Be direct and clear
-    - Keep it concise
-    - No source references
-    - No disclaimers
-    """
-
+def generate_response(query: str, results: List[Dict[str, Any]]) -> str:
+    """Generate a response using the retrieved documents."""
     try:
+        print(f"Generating response for query: {query}")
+        print(f"Number of results to process: {len(results)}")
+        
+        if not results:
+            print("No results found to generate response")
+            return "I apologize, but I couldn't find any relevant information in the available documents."
+        
+        # Prepare context from search results
+        context_parts = []
+        for i, result in enumerate(results):
+            source_info = f"Source {i+1} (Score: {result.get('score', 0):.2f}, Document: {result.get('source', 'unknown')}, Chunk {result.get('chunk_index', 0)+1}/{result.get('total_chunks', 0)}):\n"
+            context_parts.append(source_info + result.get('text', ''))
+        
+        context = "\n\n".join(context_parts)
+        print("Context prepared for response generation")
+
+        # Use appropriate model based on language
+        model = "phi4-mini:3.8b"
+        print(f"Using model: {model}")
+
+        # Generate response using Ollama
         response = ollama.chat(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            options={
-                "temperature": temperature,
-                "top_k": top_k,
-                "max_length": max_length,
-                "repetition_penalty": repetition_penalty,
-                "stop": ["\n\n", "user:", "assistant:"]
-            }
+            model=model,
+            messages=[{
+                "role": "user",
+                "content": f"""You are a precise AI assistant. Your task is to answer ONLY the specific question asked, using ONLY the most relevant information from the provided context.
+
+Question: {query}
+
+Context:
+{context}
+
+Strict Response Rules:
+1. Answer ONLY the exact question asked - do not add any additional information
+2. Use ONLY the most relevant facts from the context that directly answer the question
+3. If the context contains multiple pieces of information, use ONLY the most relevant one
+4. Do not combine or mix information from different sources
+5. Do not add any background information, context, or explanations
+6. Keep the response to 1-2 sentences maximum
+7. If you cannot find a direct answer in the context, say "I couldn't find specific information about this in the available documents."
+
+Example format for "What did Microsoft and OpenAI announce recently?":
+"Microsoft announced a $10 billion investment in OpenAI to accelerate AI development."
+
+Answer:"""
+            }]
         )
 
-        response_text = response["message"]["content"]
-        
-        # Log the raw response for debugging
-        logger.info(f"Raw LLM response: {response_text}")
-        
-        # Clean up any potential formatting issues
-        response_text = response_text.replace('\n\n\n', '\n\n')  # Remove excessive newlines
-        response_text = ' '.join(response_text.split())  # Fix spacing issues
-        response_text = response_text.replace(' .', '.').replace(' ,', ',')  # Fix punctuation spacing
-        
-        # Verify response against sources
-        if not verify_response(response_text, context):
-            if language == "arabic":
-                return "عذراً، لا تتوفر معلومات كافية في المصادر المتاحة للإجابة على هذا السؤال"
-            return "I apologize, but the available sources don't contain sufficient information to provide a complete answer to your question."
+        print("Response generated successfully")
+        return response['message']['content'].strip()
 
-        return clean_ai_response(response_text, language)
-        
     except Exception as e:
-        logger.error(f"Error generating response: {e}")
-        if language == "arabic":
-            return "عذراً، حدث خطأ أثناء معالجة الإجابة"
+        print(f"Error generating response: {e}")
         return "I apologize, but there was an error processing your request."
 
 def verify_response(response: str, context: str) -> bool:
     """Verify that the response is based on the provided context."""
+    if not response or not context:
+        return False
+        
     # Convert to lowercase for comparison
     response_lower = response.lower()
     context_lower = context.lower()
     
-    # Check if response contains key terms from context
+    # Extract key phrases (2-3 word combinations)
+    def get_phrases(text):
+        words = text.split()
+        phrases = []
+        for i in range(len(words)-1):
+            phrases.append(" ".join(words[i:i+2]))
+        for i in range(len(words)-2):
+            phrases.append(" ".join(words[i:i+3]))
+        return phrases
+    
+    context_phrases = get_phrases(context_lower)
+    response_phrases = get_phrases(response_lower)
+    
+    # Check for phrase overlap
+    matching_phrases = set(context_phrases) & set(response_phrases)
+    if len(matching_phrases) > 0:
+        return True
+    
+    # Fallback to key terms if no phrases match
     key_terms = set(context_lower.split())
     response_terms = set(response_lower.split())
     
     # Calculate overlap
     overlap = key_terms.intersection(response_terms)
     
-    # If less than 20% of key terms are used, response might be generic
-    if len(overlap) / len(key_terms) < 0.2:
-        return False
-    
-    # Check for specific numbers and names (case-insensitive)
-    numbers = re.findall(r'\d+', context)
-    names = re.findall(r'[A-Z][a-z]+', context)
-    
-    # Response should contain at least some of the specific details
-    # But don't require ALL numbers and names
-    if numbers and not any(num in response for num in numbers):
-        # Only require numbers if they are critical to the answer
-        if any(num in context_lower for num in ['$', 'billion', 'million']):
-            return False
-    if names and not any(name.lower() in response_lower for name in names):
-        # Only require names if they are key entities
-        if any(name in context_lower for name in ['microsoft', 'amazon', 'google', 'apple']):
-            return False
-    
-    return True
+    # Very lenient threshold
+    return len(overlap) > 2  # Only require 3 matching terms
+
+ENGLISH_PROMPT_TEMPLATE = """You are a helpful AI assistant. Based on the following context, provide a detailed and specific answer to the question. Include relevant facts, figures, and specific initiatives when available.
+
+Context:
+{context}
+
+Question: {question}
+
+Please provide a comprehensive answer that:
+1. Directly addresses the question
+2. Includes specific details and examples
+3. Cites relevant facts and figures
+4. Explains the significance of the initiatives
+5. Uses clear and professional language
+
+Answer:"""
+
+ARABIC_PROMPT_TEMPLATE = """أنت مساعد ذكي مفيد. بناءً على السياق التالي، قدم إجابة مفصلة ومحددة للسؤال. أدرج الحقائق والأرقام والمبادرات المحددة عند توفرها.
+
+السياق:
+{context}
+
+السؤال: {question}
+
+يرجى تقديم إجابة شاملة:
+1. تجيب مباشرة على السؤال
+2. تتضمن تفاصيل وأمثلة محددة
+3. تستشهد بالحقائق والأرقام ذات الصلة
+4. تشرح أهمية المبادرات
+5. تستخدم لغة واضحة ومهنية
+
+الإجابة:"""
 
 # End of file - Remove any UI-related code that was here
