@@ -184,31 +184,49 @@ def extract_entities_azure(text: str, language: str) -> Dict[str, List[str]]:
         Dict of entity categories and their values
     """
     try:
-        client = init_azure_client()
-        if not client:
-            logger.error("Failed to initialize Azure client")
+        # Convert language code to Azure format
+        lang_code = "ar" if language == "arabic" else "en"
+        
+        # Prepare request
+        url = f"{AZURE_LANGUAGE_ENDPOINT}/language/:analyze-text?api-version=2023-04-01"
+        headers = {
+            "Content-Type": "application/json",
+            "Ocp-Apim-Subscription-Key": AZURE_LANGUAGE_KEY
+        }
+        data = {
+            "kind": "EntityRecognition",
+            "analysisInput": {
+                "documents": [
+                    {
+                        "id": "1",
+                        "text": text,
+                        "language": lang_code
+                    }
+                ]
+            }
+        }
+        
+        # Make API call
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code != 200:
+            logger.error(f"Entity extraction failed: {response.text}")
             return {}
             
-        # Split text into chunks if too long
-        chunks = [text[i:i+5000] for i in range(0, len(text), 5000)]
-        all_entities = {}
+        result = response.json()
         
-        for chunk in chunks:
-            result = client.recognize_entities(
-                [chunk],
-                language=language
-            )[0]
-            
-            if not result.is_error:
-                for entity in result.entities:
-                    category = entity.category
-                    if category not in all_entities:
-                        all_entities[category] = []
-                    if entity.text not in all_entities[category]:
-                        all_entities[category].append(entity.text)
+        # Process and organize entities by category
+        entities = {}
+        if 'results' in result and 'documents' in result['results']:
+            for doc in result['results']['documents']:
+                for entity in doc.get('entities', []):
+                    category = entity['category']
+                    if category not in entities:
+                        entities[category] = []
+                    if entity['text'] not in entities[category]:
+                        entities[category].append(entity['text'])
         
-        logger.info(f"Extracted {sum(len(v) for v in all_entities.values())} entities")
-        return all_entities
+        logger.info(f"Extracted {sum(len(v) for v in entities.values())} entities")
+        return entities
         
     except Exception as e:
         logger.error(f"Error extracting entities with Azure: {e}")
@@ -226,26 +244,44 @@ def extract_key_phrases_azure(text: str, language: str) -> List[str]:
         List of extracted key phrases
     """
     try:
-        client = init_azure_client()
-        if not client:
-            logger.error("Failed to initialize Azure client")
+        # Convert language code to Azure format
+        lang_code = "ar" if language == "arabic" else "en"
+        
+        # Prepare request
+        url = f"{AZURE_LANGUAGE_ENDPOINT}/language/:analyze-text?api-version=2023-04-01"
+        headers = {
+            "Content-Type": "application/json",
+            "Ocp-Apim-Subscription-Key": AZURE_LANGUAGE_KEY
+        }
+        data = {
+            "kind": "KeyPhraseExtraction",
+            "analysisInput": {
+                "documents": [
+                    {
+                        "id": "1",
+                        "text": text,
+                        "language": lang_code
+                    }
+                ]
+            }
+        }
+        
+        # Make API call
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code != 200:
+            logger.error(f"Key phrase extraction failed: {response.text}")
             return []
             
-        # Split text into chunks if too long
-        chunks = [text[i:i+5000] for i in range(0, len(text), 5000)]
-        all_phrases = []
+        result = response.json()
         
-        for chunk in chunks:
-            result = client.extract_key_phrases(
-                [chunk],
-                language=language
-            )[0]
-            
-            if not result.is_error:
-                all_phrases.extend(result.key_phrases)
+        # Extract key phrases
+        phrases = []
+        if 'results' in result and 'documents' in result['results']:
+            for doc in result['results']['documents']:
+                phrases.extend(doc.get('keyPhrases', []))
         
-        logger.info(f"Extracted {len(all_phrases)} key phrases")
-        return all_phrases
+        logger.info(f"Extracted {len(phrases)} key phrases")
+        return phrases
         
     except Exception as e:
         logger.error(f"Error extracting key phrases with Azure: {e}")
@@ -263,34 +299,50 @@ def analyze_sentiment_azure(text: str, language: str) -> Dict[str, float]:
         Dict with sentiment scores (positive, neutral, negative)
     """
     try:
-        client = init_azure_client()
-        if not client:
-            logger.error("Failed to initialize Azure client")
+        # Convert language code to Azure format
+        lang_code = "ar" if language == "arabic" else "en"
+        
+        # Prepare request
+        url = f"{AZURE_LANGUAGE_ENDPOINT}/language/:analyze-text?api-version=2023-04-01"
+        headers = {
+            "Content-Type": "application/json",
+            "Ocp-Apim-Subscription-Key": AZURE_LANGUAGE_KEY
+        }
+        data = {
+            "kind": "SentimentAnalysis",
+            "analysisInput": {
+                "documents": [
+                    {
+                        "id": "1",
+                        "text": text,
+                        "language": lang_code
+                    }
+                ]
+            }
+        }
+        
+        # Make API call
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code != 200:
+            logger.error(f"Sentiment analysis failed: {response.text}")
             return {"positive": 0.0, "neutral": 0.0, "negative": 0.0}
             
-        # Split text into chunks if too long
-        chunks = [text[i:i+5000] for i in range(0, len(text), 5000)]
-        total_sentiment = {"positive": 0.0, "neutral": 0.0, "negative": 0.0}
-        chunk_count = 0
+        result = response.json()
         
-        for chunk in chunks:
-            result = client.analyze_sentiment(
-                [chunk],
-                language=language
-            )[0]
-            
-            if not result.is_error:
-                total_sentiment["positive"] += result.confidence_scores.positive
-                total_sentiment["neutral"] += result.confidence_scores.neutral
-                total_sentiment["negative"] += result.confidence_scores.negative
-                chunk_count += 1
+        # Extract sentiment scores
+        sentiment = {"positive": 0.0, "neutral": 0.0, "negative": 0.0}
+        if 'results' in result and 'documents' in result['results']:
+            for doc in result['results']['documents']:
+                if 'confidenceScores' in doc:
+                    sentiment = {
+                        "positive": doc['confidenceScores']['positive'],
+                        "neutral": doc['confidenceScores']['neutral'],
+                        "negative": doc['confidenceScores']['negative']
+                    }
+                    break
         
-        if chunk_count > 0:
-            # Average the sentiment scores
-            total_sentiment = {k: v/chunk_count for k, v in total_sentiment.items()}
-        
-        logger.info(f"Sentiment analysis: {total_sentiment}")
-        return total_sentiment
+        logger.info(f"Sentiment analysis: {sentiment}")
+        return sentiment
         
     except Exception as e:
         logger.error(f"Error analyzing sentiment with Azure: {e}")
@@ -498,124 +550,122 @@ def generate_embedding(text: str, language: str) -> List[float]:
 
 def search_documents(query: str, language: str = None) -> List[Dict[str, Any]]:
     """
-    Search for relevant documents using hybrid retrieval.
-    
-    This function implements a multi-stage retrieval process:
-    1. Language detection
-    2. Entity and key phrase extraction
-    3. Sentiment analysis
-    4. Vector similarity search
-    5. BM25 text matching
-    6. Combined scoring and ranking
+    Search for relevant documents using multiple retrieval strategies.
     
     Args:
         query: Search query
         language: Optional language code (ar/en)
         
     Returns:
-        List of relevant documents with scores and metadata
+        List of relevant documents with scores
     """
     try:
-        logger.info(f"Searching for query: {query}")
-        
         # Detect language if not provided
         if not language:
-            detection = detect_language_azure(query)
-            language = detection["language"]
-            logger.info(f"Detected language: {language} (confidence: {detection['confidence']:.2f})")
-        else:
-            logger.info(f"Using provided language: {language}")
+            lang_result = detect_language_azure(query)
+            language = lang_result["language"] if isinstance(lang_result, dict) else "unknown"
+            logger.info(f"Detected language: {language}")
         
-        # Extract entities, key phrases, and sentiment from query
-        query_entities = extract_entities_azure(query, "ar" if language == "arabic" else "en")
+        # Get collection name based on language
+        collection_name = f"rag_docs_{'ar' if language == 'arabic' else 'en'}"
+        
+        # Extract entities and key phrases from query
+        query_entities = extract_entities_azure(query, language)
+        query_phrases = extract_key_phrases_azure(query, language)
+        query_sentiment = analyze_sentiment_azure(query, language)
+        
+        logger.info(f"Searching for query: {query}")
+        logger.info(f"Using provided language: {language}")
         logger.info(f"Query entities: {query_entities}")
-        
-        query_phrases = extract_key_phrases_azure(query, "ar" if language == "arabic" else "en")
         logger.info(f"Query key phrases: {query_phrases}")
-        
-        query_sentiment = analyze_sentiment_azure(query, "ar" if language == "arabic" else "en")
         logger.info(f"Query sentiment: {query_sentiment}")
         
         # Generate query embedding
         query_embedding = generate_embedding(query, language)
-        if query_embedding is None:
-            logger.error("Failed to generate query embedding")
-            return []
-
-        # Search in appropriate collection
-        results = []
-        collection_name = f"rag_docs_{'ar' if language == 'arabic' else 'en'}"
-        logger.info(f"Searching in collection: {collection_name}")
         
-        # First do vector search
-        vector_results = client.search(
+        # Search in Qdrant
+        search_results = client.search(
             collection_name=collection_name,
             query_vector=query_embedding,
-            limit=20,  # Get more candidates
-            score_threshold=0.1  # Lower threshold to get more candidates
+            limit=20
         )
         
-        logger.info(f"Found {len(vector_results)} vector matches")
-        
         # Process and score results
-        for result in vector_results:
-            payload = result.payload
-            if payload and "text" in payload:
-                # Calculate BM25 score
-                text = payload["text"]
-                bm25_score = calculate_bm25_score(query, text, language)
+        scored_results = []
+        for result in search_results:
+            doc = result.payload
+            if not doc:
+                continue
                 
-                # Calculate entity match score
-                doc_entities = payload.get("metadata", {}).get("entities", {})
-                entity_score = calculate_entity_score(query_entities, doc_entities)
-                
-                # Calculate key phrase match score
-                doc_phrases = payload.get("metadata", {}).get("key_phrases", [])
-                logger.info(f"Document phrases: {doc_phrases}")
-                key_phrase_score = calculate_key_phrase_score(query_phrases, doc_phrases)
-                
-                # Calculate sentiment match score
-                doc_sentiment = payload.get("metadata", {}).get("sentiment", {})
-                sentiment_score = calculate_sentiment_score(query_sentiment, doc_sentiment)
-                
-                # Combine scores with weights
-                combined_score = (
-                    0.3 * result.score +      # Vector similarity
-                    0.3 * bm25_score +        # Text matching
-                    0.2 * entity_score +      # Entity matching
-                    0.1 * key_phrase_score +  # Key phrase matching
-                    0.1 * sentiment_score     # Sentiment matching
-                )
-                
-                if combined_score >= 0.1:  # Lower threshold to get more results
-                    result_data = {
-                        "text": text,
-                        "score": combined_score,
-                        "vector_score": result.score,
-                        "bm25_score": bm25_score,
-                        "entity_score": entity_score,
-                        "key_phrase_score": key_phrase_score,
-                        "sentiment_score": sentiment_score,
-                        "source": payload.get("metadata", {}).get("source", "unknown"),
-                        "language": language,
-                        "matched_entities": doc_entities,
-                        "matched_phrases": doc_phrases,
-                        "sentiment": doc_sentiment,
-                        "chunk_index": payload.get("metadata", {}).get("chunk_index", 0),
-                        "total_chunks": payload.get("metadata", {}).get("total_chunks", 0)
-                    }
-                    results.append(result_data)
-                    logger.info(f"Added result with combined score: {combined_score:.2f}")
-                    logger.info(f"Vector score: {result.score:.2f}")
-                    logger.info(f"BM25 score: {bm25_score:.2f}")
-                    logger.info(f"Entity score: {entity_score:.2f}")
-                    logger.info(f"Key phrase score: {key_phrase_score:.2f}")
-                    logger.info(f"Sentiment score: {sentiment_score:.2f}")
-
-        # Sort by combined score and return top results
-        results.sort(key=lambda x: x["score"], reverse=True)
-        logger.info(f"Returning {len(results)} results")
-        return results[:3]  # Return only top 3 most relevant results
+            # Calculate vector similarity score
+            vector_score = result.score
+            
+            # Calculate entity matching score
+            doc_entities = doc.get("entities", {})
+            if isinstance(doc_entities, str):
+                try:
+                    doc_entities = json.loads(doc_entities)
+                except:
+                    doc_entities = {}
+            entity_score = calculate_entity_score(query_entities, doc_entities)
+            
+            # Calculate key phrase matching score
+            doc_phrases = doc.get("key_phrases", [])
+            if isinstance(doc_phrases, str):
+                try:
+                    doc_phrases = json.loads(doc_phrases)
+                except:
+                    doc_phrases = []
+            phrase_score = calculate_key_phrase_score(query_phrases, doc_phrases)
+            
+            # Calculate sentiment matching score
+            doc_sentiment = doc.get("sentiment", {})
+            if isinstance(doc_sentiment, str):
+                try:
+                    doc_sentiment = json.loads(doc_sentiment)
+                except:
+                    doc_sentiment = {}
+            sentiment_score = calculate_sentiment_score(query_sentiment, doc_sentiment)
+            
+            # Calculate BM25 score
+            bm25_score = calculate_bm25_score(query, doc["text"], language)
+            
+            # Combine scores with weights
+            final_score = (
+                0.4 * vector_score +
+                0.2 * entity_score +
+                0.2 * phrase_score +
+                0.1 * sentiment_score +
+                0.1 * bm25_score
+            )
+            
+            # Create result object with matched entities
+            matched_entities = {}
+            if isinstance(doc_entities, dict) and isinstance(query_entities, dict):
+                for category, entities in doc_entities.items():
+                    if category in query_entities:
+                        matched_entities[category] = [
+                            entity for entity in entities 
+                            if entity.lower() in [e.lower() for e in query_entities[category]]
+                        ]
+            
+            scored_result = {
+                "text": doc["text"],
+                "score": final_score,
+                "vector_score": vector_score,
+                "entity_score": entity_score,
+                "source": doc.get("source", "unknown"),
+                "chunk_id": doc.get("chunk_id", 0),
+                "total_chunks": doc.get("total_chunks", 1),
+                "language": language,
+                "matched_entities": matched_entities
+            }
+            
+            scored_results.append(scored_result)
+        
+        # Sort by final score and return top results
+        scored_results.sort(key=lambda x: x["score"], reverse=True)
+        return scored_results[:10]
 
     except Exception as e:
         logger.error(f"Error searching documents: {e}")
@@ -673,12 +723,12 @@ def generate_response(query: str, results: List[Dict[str, Any]]) -> str:
             {
                 "role": "user",
                 "content": f"""Based on the following sources, provide a direct answer to the question. Use only the information provided in these sources and respond in the same language as the question.
-
-Question: {query}
-
+        
+        Question: {query}
+        
 Sources:
-{context}
-
+        {context}
+        
 Answer format:
 - Answer must be a single, clear sentence
 - Use only the information from these sources
@@ -751,3 +801,43 @@ def verify_response(response: str, context: str) -> bool:
     
     # Very lenient threshold
     return len(overlap) > 2  # Only require 3 matching terms
+
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("Usage: python retriever.py <query>")
+        sys.exit(1)
+        
+    query = sys.argv[1]
+    print(f"\nQuery: {query}")
+    print("-" * 50)
+    
+    # Search for documents
+    results = search_documents(query)
+    
+    if not results:
+        print("No results found.")
+        sys.exit(0)
+        
+    # Print search results
+    print("\nSearch Results:")
+    print("-" * 50)
+    for i, result in enumerate(results, 1):
+        print(f"\nResult {i}:")
+        print(f"Score: {result['score']:.4f}")
+        print(f"Vector Score: {result['vector_score']:.4f}")
+        print(f"Entity Score: {result['entity_score']:.4f}")
+        print(f"Source: {result['source']}")
+        print(f"Language: {result['language']}")
+        if result['matched_entities']:
+            print("Matched Entities:")
+            for category, entities in result['matched_entities'].items():
+                print(f"  {category}: {', '.join(entities)}")
+        print("-" * 30)
+    
+    # Generate and print response
+    print("\nGenerated Response:")
+    print("-" * 50)
+    response = generate_response(query, results)
+    print(response)
