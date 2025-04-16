@@ -19,6 +19,7 @@ import aiohttp
 import streamlit as st
 from azure.ai.textanalytics import TextAnalyticsClient
 from azure.core.credentials import AzureKeyCredential
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -203,29 +204,36 @@ def extract_entities(text: str, language: str = "en") -> List[Dict[str, str]]:
 # 🔹 Function: Calculate Entity Score
 # -----------------------------------------------
 
-def calculate_entity_score(query_entities: List[Dict[str, str]], doc_entities: Dict[str, List[str]]) -> float:
+def calculate_entity_score(query_entities: Dict[str, List[str]], doc_entities: Dict[str, List[str]]) -> float:
     """Calculate similarity score based on matching entities."""
     try:
         if not query_entities or not doc_entities:
             return 0.0
             
+        # Convert doc_entities to the correct format if it's a string
+        if isinstance(doc_entities, str):
+            try:
+                doc_entities = json.loads(doc_entities)
+            except:
+                return 0.0
+            
         # Count matching entities
         matches = 0
-        total = len(query_entities)
+        total = sum(len(v) for v in query_entities.values())
         
-        for entity in query_entities:
-            entity_text = entity.get('text', '').lower()
-            entity_type = entity.get('type', '')
+        if total == 0:
+            return 0.0
             
-            # Check if entity exists in document
-            if entity_type in doc_entities:
-                doc_entity_texts = [e.lower() for e in doc_entities[entity_type]]
-                if entity_text in doc_entity_texts:
-                    matches += 1
-                    
+        for category, entities in query_entities.items():
+            if category in doc_entities:
+                doc_entity_texts = [e.lower() for e in doc_entities[category]]
+                for entity in entities:
+                    if entity.lower() in doc_entity_texts:
+                        matches += 1
+                        
         # Calculate score
         score = matches / total if total > 0 else 0.0
-        
+        print(f"Entity score: {score:.2f} (matches: {matches}, total: {total})")
         return score
         
     except Exception as e:
@@ -235,6 +243,39 @@ def calculate_entity_score(query_entities: List[Dict[str, str]], doc_entities: D
 # -----------------------------------------------
 # 🔹 Function: Search Documents with Hybrid Retrieval
 # -----------------------------------------------
+
+def extract_entities_azure(text: str, language: str) -> Dict[str, List[str]]:
+    """Extract entities using Azure Text Analytics."""
+    try:
+        client = init_azure_client()
+        if not client:
+            print("Failed to initialize Azure client")
+            return {}
+            
+        # Split text into chunks if too long
+        chunks = [text[i:i+5000] for i in range(0, len(text), 5000)]
+        all_entities = {}
+        
+        for chunk in chunks:
+            result = client.recognize_entities(
+                [chunk],
+                language=language
+            )[0]
+            
+            if not result.is_error:
+                for entity in result.entities:
+                    category = entity.category
+                    if category not in all_entities:
+                        all_entities[category] = []
+                    if entity.text not in all_entities[category]:
+                        all_entities[category].append(entity.text)
+        
+        print(f"Extracted {sum(len(v) for v in all_entities.values())} entities")
+        return all_entities
+        
+    except Exception as e:
+        print(f"Error extracting entities with Azure: {e}")
+        return {}
 
 def search_documents(query: str, language: str = None) -> List[Dict[str, Any]]:
     """Search for relevant documents in both collections."""
@@ -248,6 +289,10 @@ def search_documents(query: str, language: str = None) -> List[Dict[str, Any]]:
             print(f"Detected language: {language} (confidence: {detection['confidence']:.2f})")
         else:
             print(f"Using provided language: {language}")
+        
+        # Extract entities from query
+        query_entities = extract_entities_azure(query, "ar" if language == "arabic" else "en")
+        print(f"Query entities: {query_entities}")
         
         # Generate query embedding
         query_embedding = generate_embedding(query, language)
@@ -279,15 +324,14 @@ def search_documents(query: str, language: str = None) -> List[Dict[str, Any]]:
                 bm25_score = calculate_bm25_score(query, text, language)
                 
                 # Calculate entity match score
-                query_entities = extract_entities(query, language)
                 doc_entities = payload.get("metadata", {}).get("entities", {})
                 entity_score = calculate_entity_score(query_entities, doc_entities)
                 
                 # Combine scores with weights
                 combined_score = (
-                    0.5 * result.score +  # Vector similarity
-                    0.4 * bm25_score +    # Text matching
-                    0.1 * entity_score     # Entity matching
+                    0.4 * result.score +  # Vector similarity
+                    0.3 * bm25_score +    # Text matching
+                    0.3 * entity_score     # Entity matching
                 )
                 
                 if combined_score >= 0.3:  # Lower threshold to get more results
