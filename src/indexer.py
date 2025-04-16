@@ -28,6 +28,7 @@ from typing import List, Dict, Any, Optional, Union
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
 import tempfile
+from azure.ai.textanalytics import TextAnalyticsClient
 
 # ================================
 # 🔹 CONFIGURATION & INITIAL SETUP
@@ -402,8 +403,10 @@ def process_document(content: Union[str, bytes], filename: str = None) -> List[D
         # Detect language for each chunk
         language = detect_language(chunk)
         
-        # Extract entities from the chunk
+        # Extract entities, key phrases, and sentiment from the chunk
         entities = extract_entities(chunk, language)
+        key_phrases = extract_key_phrases(chunk, language)
+        sentiment = analyze_sentiment(chunk, language)
         
         # Group entities by category
         entities_by_category = {}
@@ -423,6 +426,8 @@ def process_document(content: Union[str, bytes], filename: str = None) -> List[D
             "source": filename or "unknown",
             "language": language,
             "entities": entities_by_category,
+            "key_phrases": key_phrases,
+            "sentiment": sentiment,
             "metadata": additional_metadata.get("metadata", {})
         }
         
@@ -583,6 +588,98 @@ def load_documents() -> List[Dict[str, Any]]:
                         documents.append({"text": row["text"], "filename": file})
 
     return documents
+
+# ================================
+# 🔹 KEY PHRASES EXTRACTION FUNCTION
+# ================================
+
+def extract_key_phrases(text: str, language: str = "en") -> List[str]:
+    """
+    Extract key phrases from text using Azure Text Analytics.
+    
+    Args:
+        text: Input text to extract phrases from
+        language: Language code (ar/en)
+        
+    Returns:
+        List[str]: List of extracted key phrases
+    """
+    try:
+        # Initialize Azure Text Analytics client
+        client = TextAnalyticsClient(
+            endpoint=AZURE_LANGUAGE_ENDPOINT,
+            credential=AzureKeyCredential(AZURE_LANGUAGE_KEY)
+        )
+        
+        # Split text into chunks if too long
+        chunks = [text[i:i+5000] for i in range(0, len(text), 5000)]
+        all_phrases = []
+        
+        for chunk in chunks:
+            result = client.extract_key_phrases(
+                [chunk],
+                language=language
+            )[0]
+            
+            if not result.is_error:
+                all_phrases.extend(result.key_phrases)
+        
+        print(f"Extracted {len(all_phrases)} key phrases")
+        return all_phrases
+        
+    except Exception as e:
+        print(f"Error extracting key phrases: {e}")
+        return []
+
+# ================================
+# 🔹 SENTIMENT ANALYSIS FUNCTION
+# ================================
+
+def analyze_sentiment(text: str, language: str = "en") -> Dict[str, float]:
+    """
+    Analyze sentiment using Azure Text Analytics.
+    
+    Args:
+        text: Input text to analyze
+        language: Language code (ar/en)
+        
+    Returns:
+        Dict[str, float]: Sentiment scores (positive, neutral, negative)
+    """
+    try:
+        # Initialize Azure Text Analytics client
+        client = TextAnalyticsClient(
+            endpoint=AZURE_LANGUAGE_ENDPOINT,
+            credential=AzureKeyCredential(AZURE_LANGUAGE_KEY)
+        )
+        
+        # Split text into chunks if too long
+        chunks = [text[i:i+5000] for i in range(0, len(text), 5000)]
+        total_sentiment = {"positive": 0.0, "neutral": 0.0, "negative": 0.0}
+        chunk_count = 0
+        
+        for chunk in chunks:
+            result = client.analyze_sentiment(
+                [chunk],
+                language=language
+            )[0]
+            
+            if not result.is_error:
+                total_sentiment["positive"] += result.confidence_scores.positive
+                total_sentiment["neutral"] += result.confidence_scores.neutral
+                total_sentiment["negative"] += result.confidence_scores.negative
+                chunk_count += 1
+        
+        if chunk_count > 0:
+            # Average the sentiment scores
+            total_sentiment = {k: v/chunk_count for k, v in total_sentiment.items()}
+        
+        print(f"Sentiment analysis: {total_sentiment}")
+        return total_sentiment
+        
+    except Exception as e:
+        print(f"Error analyzing sentiment: {e}")
+        return {"positive": 0.0, "neutral": 0.0, "negative": 0.0}
 
 # ================================
 # 🔹 MAIN EXECUTION

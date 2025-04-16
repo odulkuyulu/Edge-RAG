@@ -117,6 +117,17 @@ curl -X DELETE "http://localhost:6333/collections/rag_docs_ar"
 ```bash
 streamlit run src/app.py
 ```
+
+### **Tests**
+```bash
+python src/indexer.py data/ai_en.txt data/ai_ar.txt
+
+python src/retriever.py "ما هي تفاصيل استثمارات جوجل في الإمارات؟"
+python src/retriever.py "What is the value of Microsoft's investment in G42?"
+
+python -m pytest tests/test_indexer.py -v
+python -m pytest tests/test_retriever.py -v
+```
 ---
 
 ## 🔹 How Azure AI Containers Can Enhance your Offline RAG System

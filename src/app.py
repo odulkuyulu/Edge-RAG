@@ -1,5 +1,5 @@
 import streamlit as st
-from retriever import generate_response, search_documents, detect_language
+from retriever import generate_response, search_documents, detect_language_azure
 from indexer import index_document, load_documents, create_collection_if_not_exists
 import ollama
 import os
@@ -184,7 +184,8 @@ if st.button("🔍 Search", use_container_width=True, disabled=st.session_state.
         try:
             with st.spinner("🔍 Searching through documents..."):
                 # Detect language automatically
-                language = detect_language(query)
+                language_result = detect_language_azure(query)
+                language = language_result["language"] if isinstance(language_result, dict) else "unknown"
                 
                 # Show detected language with appropriate emoji
                 lang_emoji = "🇺🇸" if language == "english" else "🇦🇪"
