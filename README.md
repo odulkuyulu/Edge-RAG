@@ -117,14 +117,6 @@ curl -X DELETE "http://localhost:6333/collections/rag_docs_ar"
 ```bash
 streamlit run src/app.py
 ```
-
-### **9️⃣ Test Queries**
-Open your browser at `http://localhost:8501` and enter any query.  
-Examples:  
-- **English:** `"What is artificial intelligence?"`  
-- **Arabic:** `"ما هو الذكاء الاصطناعي؟"`
-
-
 ---
 
 ## 🔹 How Azure AI Containers Can Enhance your Offline RAG System

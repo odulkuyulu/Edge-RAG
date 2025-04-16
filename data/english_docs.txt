@@ -1,3 +1,0 @@
-AI agents automate tasks and improve workflows.
-Vector databases store and retrieve embeddings efficiently.
-LLMs like GPT-4 generate human-like text responses.

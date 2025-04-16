@@ -1,23 +1,38 @@
-# Azure AI Language (Text Analytics) Offline Container
-AZURE_LANGUAGE_BILLING_URL=XXXXX
-AZURE_LANGUAGE_API_KEY=XXXXX
-# AZURE_LANGUAGE_EULA=accept
+# Azure AI Language Disconnected Container 
+# Used in indexer.py for language detection and named entity recognition 
+# Used in retriever.py for language detection  and named entity recognition 
+AZURE_LANGUAGE_ENDPOINT=
+AZURE_LANGUAGE_KEY=
 
-# Azure NER Offline Container
-AZURE_NER_BILLING_URL=XXXXX
-AZURE_NER_API_KEY=XXXXXX
-
-AZURE_LANGUAGE_API_URL=http://localhost:5000
-AZURE_NER_API_URL=http://localhost:5001
+# Azure Document Intelligence Disconnected Container 
+# Used in indexer.py for document processing and entity extraction 
+AZURE_DOC_INTEL_ENDPOINT=
+AZURE_DOC_INTEL_KEY=
 
 
-# (Future) Azure AI Content Safety Offline Container
-#AZURE_CONTENT_SAFETY_BILLING_URL=https://<your-region>.api.cognitive.microsoft.com/
-#AZURE_CONTENT_SAFETY_API_KEY=your-api-key
-#AZURE_CONTENT_SAFETY_EULA=accept
+# Qdrant Configuration
+# Used in indexer.py for vector search 
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+QDRANT_URL=http://localhost:6333
+COLLECTION_NAME=documents
 
-# (Future) Azure AI Document Intelligence Offline Container
-#AZURE_DOCUMENT_INTELLIGENCE_BILLING_URL=https://<your-region>.api.cognitive.microsoft.com/
-#AZURE_DOCUMENT_INTELLIGENCE_API_KEY=your-api-key
-#AZURE_DOCUMENT_INTELLIGENCE_EULA=accept
+# Processing Configuration
+# Used in indexer.py for chunking and embedding 
+EMBEDDING_SIZE=1024
+CHUNK_SIZE=200
+CHUNK_OVERLAP=50
+BATCH_SIZE=100
+MAX_RETRIES=3
+RETRY_DELAY=1
 
+# Model Configuration
+# Used in indexer.py for embedding model 
+EMBEDDING_MODEL=bge-m3
+CACHE_EMBEDDINGS=true
+CACHE_SIZE=10000
+
+# Performance Configuration
+# Used in indexer.py for performance configuration 
+MAX_WORKERS=4
+EMBEDDING_TIMEOUT=30
