@@ -346,7 +346,7 @@ def process_document(content: Union[str, bytes], filename: str = None) -> List[D
         filename: Optional path to the document file
         
     Returns:
-        List[Dict[str, Any]]: List of processed document chunks with metadata
+        List[Dict[str, Any]]: List of processed document chunks with metadata and embeddings
     """
     # Initialize variables
     text = ""
@@ -413,6 +413,9 @@ def process_document(content: Union[str, bytes], filename: str = None) -> List[D
                 entities_by_category[category] = []
             entities_by_category[category].append(entity["text"])
         
+        # Generate embedding for the chunk
+        embedding = generate_embedding(chunk, language)
+        
         # Combine Document Intelligence metadata with chunk metadata
         chunk_metadata = {
             "chunk_id": i,
@@ -429,7 +432,8 @@ def process_document(content: Union[str, bytes], filename: str = None) -> List[D
         
         processed_chunks.append({
             "text": chunk,
-            "metadata": chunk_metadata
+            "metadata": chunk_metadata,
+            "embedding": embedding
         })
     
     return processed_chunks

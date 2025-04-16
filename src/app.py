@@ -267,35 +267,14 @@ st.markdown("#### 🇺🇸 English Prompts")
 st.code("""
 # Test these prompts with our indexed data:
 
-1. "What is the value of Microsoft and OpenAI's partnership?"
-   - Tests entity recognition and numerical information
-   - Expected: $10 billion partnership information
-
-2. "What are Amazon's AWS plans for healthcare and finance?"
-   - Tests specific service information
-   - Expected: Machine learning services details
+What is the value of Microsoft's investment in G42 and what are the key focus areas?
+How will the G42-Microsoft partnership contribute to AI development in the UAE?
 """, language="markdown")
 
 # Arabic Prompts
 st.markdown("#### 🇦🇪 Arabic Prompts")
 st.code("""
 # جرب هذه الأسئلة مع البيانات المفهرسة:
-
-١. "ما هي قيمة شراكة مايكروسوفت وG42 في الإمارات؟"
-   - يختبر التعرف على الكيانات والمعلومات الرقمية
-   - المتوقع: معلومات عن شراكة بقيمة ١.٥ مليار دولار
-
-٢. "ما هي خطط الذكاء الاصطناعي في أبوظبي؟"
-   - يختبر معلومات عن المشاريع المحلية
-   - المتوقع: معلومات عن مركز الذكاء الاصطناعي الجديد
+ما هي قيمة استثمارات جوجل في الإمارات وما هي أبرز مجالات التركيز؟
+كيف ستساهم استثمارات جوجل في تطوير الذكاء الاصطناعي في الإمارات؟
 """, language="markdown")
-
-# Add a note about the data
-st.info("""
-ℹ️ These prompts are specifically designed to test the indexed data in our system.
-The responses should include information from our sample documents about:
-- Microsoft and OpenAI's $10 billion partnership
-- Amazon's AWS machine learning services
-- Microsoft and G42's $1.5 billion partnership in UAE
-- AI developments in Abu Dhabi
-""")
