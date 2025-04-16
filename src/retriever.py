@@ -17,6 +17,8 @@ from pydantic import BaseModel
 import asyncio
 import aiohttp
 import streamlit as st
+from azure.ai.textanalytics import TextAnalyticsClient
+from azure.core.credentials import AzureKeyCredential
 
 # Load environment variables from .env file
 load_dotenv()
@@ -234,11 +236,18 @@ def calculate_entity_score(query_entities: List[Dict[str, str]], doc_entities: D
 # 🔹 Function: Search Documents with Hybrid Retrieval
 # -----------------------------------------------
 
-def search_documents(query: str, language: str) -> List[Dict[str, Any]]:
+def search_documents(query: str, language: str = None) -> List[Dict[str, Any]]:
     """Search for relevant documents in both collections."""
     try:
         print(f"Searching for query: {query}")
-        print(f"Language: {language}")
+        
+        # Detect language if not provided
+        if not language:
+            detection = detect_language_azure(query)
+            language = detection["language"]
+            print(f"Detected language: {language} (confidence: {detection['confidence']:.2f})")
+        else:
+            print(f"Using provided language: {language}")
         
         # Generate query embedding
         query_embedding = generate_embedding(query, language)
@@ -507,5 +516,57 @@ def calculate_bm25_score(query: str, text: str, language: str) -> float:
     except Exception as e:
         print(f"Error calculating BM25 score: {e}")
         return 0.0
+
+def init_azure_client():
+    """Initialize Azure Text Analytics client."""
+    try:
+        endpoint = os.getenv("AZURE_LANGUAGE_ENDPOINT")
+        key = os.getenv("AZURE_LANGUAGE_KEY")
+        credential = AzureKeyCredential(key)
+        client = TextAnalyticsClient(endpoint=endpoint, credential=credential)
+        return client
+    except Exception as e:
+        print(f"Error initializing Azure client: {e}")
+        return None
+
+def detect_language_azure(text: str) -> Dict[str, Any]:
+    """Detect language using Azure Text Analytics."""
+    try:
+        client = init_azure_client()
+        if not client:
+            return {"language": "unknown", "confidence": 0.0}
+            
+        # Split text into chunks if too long (Azure has a limit)
+        chunks = [text[i:i+5000] for i in range(0, len(text), 5000)]
+        detected_languages = []
+        
+        for chunk in chunks:
+            result = client.detect_language([chunk])[0]
+            if not result.is_error:
+                detected_languages.append({
+                    "language": result.primary_language.iso6391_name,
+                    "confidence": result.primary_language.confidence_score
+                })
+        
+        if not detected_languages:
+            return {"language": "unknown", "confidence": 0.0}
+            
+        # Get the most confident detection
+        best_detection = max(detected_languages, key=lambda x: x["confidence"])
+        
+        # Map Azure language codes to our system
+        language_map = {
+            "ar": "arabic",
+            "en": "english"
+        }
+        
+        return {
+            "language": language_map.get(best_detection["language"], "unknown"),
+            "confidence": best_detection["confidence"]
+        }
+        
+    except Exception as e:
+        print(f"Error detecting language with Azure: {e}")
+        return {"language": "unknown", "confidence": 0.0}
 
 # End of file - Remove any UI-related code that was here
