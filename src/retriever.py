@@ -277,6 +277,139 @@ def extract_entities_azure(text: str, language: str) -> Dict[str, List[str]]:
         print(f"Error extracting entities with Azure: {e}")
         return {}
 
+def extract_key_phrases_azure(text: str, language: str) -> List[str]:
+    """Extract key phrases using Azure Text Analytics."""
+    try:
+        client = init_azure_client()
+        if not client:
+            print("Failed to initialize Azure client")
+            return []
+            
+        # Split text into chunks if too long
+        chunks = [text[i:i+5000] for i in range(0, len(text), 5000)]
+        all_phrases = []
+        
+        for chunk in chunks:
+            result = client.extract_key_phrases(
+                [chunk],
+                language=language
+            )[0]
+            
+            if not result.is_error:
+                all_phrases.extend(result.key_phrases)
+        
+        print(f"Extracted {len(all_phrases)} key phrases")
+        return all_phrases
+        
+    except Exception as e:
+        print(f"Error extracting key phrases with Azure: {e}")
+        return []
+
+def calculate_key_phrase_score(query_phrases: List[str], doc_phrases: List[str]) -> float:
+    """Calculate similarity score based on matching key phrases."""
+    try:
+        if not query_phrases or not doc_phrases:
+            return 0.0
+            
+        # Convert doc_phrases to list if it's a string
+        if isinstance(doc_phrases, str):
+            try:
+                doc_phrases = json.loads(doc_phrases)
+            except:
+                return 0.0
+            
+        # Count matching phrases
+        matches = 0
+        total = len(query_phrases)
+        
+        if total == 0:
+            return 0.0
+            
+        query_phrases_lower = [p.lower() for p in query_phrases]
+        doc_phrases_lower = [p.lower() for p in doc_phrases]
+        
+        for phrase in query_phrases_lower:
+            if phrase in doc_phrases_lower:
+                matches += 1
+                
+        # Calculate score
+        score = matches / total if total > 0 else 0.0
+        print(f"Key phrase score: {score:.2f} (matches: {matches}, total: {total})")
+        return score
+        
+    except Exception as e:
+        print(f"Error calculating key phrase score: {e}")
+        return 0.0
+
+def analyze_sentiment_azure(text: str, language: str) -> Dict[str, float]:
+    """Analyze sentiment using Azure Text Analytics."""
+    try:
+        client = init_azure_client()
+        if not client:
+            print("Failed to initialize Azure client")
+            return {"positive": 0.0, "neutral": 0.0, "negative": 0.0}
+            
+        # Split text into chunks if too long
+        chunks = [text[i:i+5000] for i in range(0, len(text), 5000)]
+        total_sentiment = {"positive": 0.0, "neutral": 0.0, "negative": 0.0}
+        chunk_count = 0
+        
+        for chunk in chunks:
+            result = client.analyze_sentiment(
+                [chunk],
+                language=language
+            )[0]
+            
+            if not result.is_error:
+                total_sentiment["positive"] += result.confidence_scores.positive
+                total_sentiment["neutral"] += result.confidence_scores.neutral
+                total_sentiment["negative"] += result.confidence_scores.negative
+                chunk_count += 1
+        
+        if chunk_count > 0:
+            # Average the sentiment scores
+            total_sentiment = {k: v/chunk_count for k, v in total_sentiment.items()}
+        
+        print(f"Sentiment analysis: {total_sentiment}")
+        return total_sentiment
+        
+    except Exception as e:
+        print(f"Error analyzing sentiment with Azure: {e}")
+        return {"positive": 0.0, "neutral": 0.0, "negative": 0.0}
+
+def calculate_sentiment_score(query_sentiment: Dict[str, float], doc_sentiment: Dict[str, float]) -> float:
+    """Calculate similarity score based on sentiment matching."""
+    try:
+        if not query_sentiment or not doc_sentiment:
+            return 0.0
+            
+        # Convert doc_sentiment to dict if it's a string
+        if isinstance(doc_sentiment, str):
+            try:
+                doc_sentiment = json.loads(doc_sentiment)
+            except:
+                return 0.0
+            
+        # Calculate sentiment similarity
+        # We'll use a simple weighted average of the differences
+        weights = {"positive": 0.4, "neutral": 0.2, "negative": 0.4}
+        total_diff = 0.0
+        total_weight = 0.0
+        
+        for sentiment, weight in weights.items():
+            if sentiment in query_sentiment and sentiment in doc_sentiment:
+                diff = 1.0 - abs(query_sentiment[sentiment] - doc_sentiment[sentiment])
+                total_diff += diff * weight
+                total_weight += weight
+                
+        score = total_diff / total_weight if total_weight > 0 else 0.0
+        print(f"Sentiment score: {score:.2f}")
+        return score
+        
+    except Exception as e:
+        print(f"Error calculating sentiment score: {e}")
+        return 0.0
+
 def search_documents(query: str, language: str = None) -> List[Dict[str, Any]]:
     """Search for relevant documents in both collections."""
     try:
@@ -290,9 +423,15 @@ def search_documents(query: str, language: str = None) -> List[Dict[str, Any]]:
         else:
             print(f"Using provided language: {language}")
         
-        # Extract entities from query
+        # Extract entities, key phrases, and sentiment from query
         query_entities = extract_entities_azure(query, "ar" if language == "arabic" else "en")
         print(f"Query entities: {query_entities}")
+        
+        query_phrases = extract_key_phrases_azure(query, "ar" if language == "arabic" else "en")
+        print(f"Query key phrases: {query_phrases}")
+        
+        query_sentiment = analyze_sentiment_azure(query, "ar" if language == "arabic" else "en")
+        print(f"Query sentiment: {query_sentiment}")
         
         # Generate query embedding
         query_embedding = generate_embedding(query, language)
@@ -310,7 +449,7 @@ def search_documents(query: str, language: str = None) -> List[Dict[str, Any]]:
             collection_name=collection_name,
             query_vector=query_embedding,
             limit=20,  # Get more candidates
-            score_threshold=0.3  # Lower threshold to get more candidates
+            score_threshold=0.1  # Lower threshold to get more candidates
         )
         
         print(f"Found {len(vector_results)} vector matches")
@@ -327,28 +466,48 @@ def search_documents(query: str, language: str = None) -> List[Dict[str, Any]]:
                 doc_entities = payload.get("metadata", {}).get("entities", {})
                 entity_score = calculate_entity_score(query_entities, doc_entities)
                 
+                # Calculate key phrase match score
+                doc_phrases = payload.get("metadata", {}).get("key_phrases", [])
+                print(f"Document phrases: {doc_phrases}")
+                key_phrase_score = calculate_key_phrase_score(query_phrases, doc_phrases)
+                
+                # Calculate sentiment match score
+                doc_sentiment = payload.get("metadata", {}).get("sentiment", {})
+                sentiment_score = calculate_sentiment_score(query_sentiment, doc_sentiment)
+                
                 # Combine scores with weights
                 combined_score = (
-                    0.4 * result.score +  # Vector similarity
-                    0.3 * bm25_score +    # Text matching
-                    0.3 * entity_score     # Entity matching
+                    0.3 * result.score +      # Vector similarity
+                    0.3 * bm25_score +        # Text matching
+                    0.2 * entity_score +      # Entity matching
+                    0.1 * key_phrase_score +  # Key phrase matching
+                    0.1 * sentiment_score     # Sentiment matching
                 )
                 
-                if combined_score >= 0.3:  # Lower threshold to get more results
+                if combined_score >= 0.1:  # Lower threshold to get more results
                     result_data = {
                         "text": text,
                         "score": combined_score,
                         "vector_score": result.score,
                         "bm25_score": bm25_score,
                         "entity_score": entity_score,
+                        "key_phrase_score": key_phrase_score,
+                        "sentiment_score": sentiment_score,
                         "source": payload.get("metadata", {}).get("source", "unknown"),
                         "language": language,
                         "matched_entities": doc_entities,
+                        "matched_phrases": doc_phrases,
+                        "sentiment": doc_sentiment,
                         "chunk_index": payload.get("metadata", {}).get("chunk_index", 0),
                         "total_chunks": payload.get("metadata", {}).get("total_chunks", 0)
                     }
                     results.append(result_data)
                     print(f"Added result with combined score: {combined_score:.2f}")
+                    print(f"Vector score: {result.score:.2f}")
+                    print(f"BM25 score: {bm25_score:.2f}")
+                    print(f"Entity score: {entity_score:.2f}")
+                    print(f"Key phrase score: {key_phrase_score:.2f}")
+                    print(f"Sentiment score: {sentiment_score:.2f}")
 
         # Sort by combined score and return top results
         results.sort(key=lambda x: x["score"], reverse=True)
