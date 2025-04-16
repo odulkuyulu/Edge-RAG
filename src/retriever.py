@@ -203,26 +203,32 @@ def extract_entities(text: str, language: str = "en") -> List[Dict[str, str]]:
 
 def calculate_entity_score(query_entities: List[Dict[str, str]], doc_entities: Dict[str, List[str]]) -> float:
     """Calculate similarity score based on matching entities."""
-    if not query_entities or not doc_entities:
-        return 0.0
-    
-    score = 0.0
-    for query_entity in query_entities:
-        query_text = query_entity["text"].lower()
-        query_category = query_entity["category"]
+    try:
+        if not query_entities or not doc_entities:
+            return 0.0
+            
+        # Count matching entities
+        matches = 0
+        total = len(query_entities)
         
-        # Check if the entity exists in the same category
-        if query_category in doc_entities:
-            doc_entities_in_category = [e.lower() for e in doc_entities[query_category]]
-            if query_text in doc_entities_in_category:
-                score += 1.0  # Direct match in same category
-            else:
-                # Check for partial matches
-                for doc_entity in doc_entities_in_category:
-                    if query_text in doc_entity or doc_entity in query_text:
-                        score += 0.5  # Partial match
-    
-    return score / len(query_entities)  # Normalize score
+        for entity in query_entities:
+            entity_text = entity.get('text', '').lower()
+            entity_type = entity.get('type', '')
+            
+            # Check if entity exists in document
+            if entity_type in doc_entities:
+                doc_entity_texts = [e.lower() for e in doc_entities[entity_type]]
+                if entity_text in doc_entity_texts:
+                    matches += 1
+                    
+        # Calculate score
+        score = matches / total if total > 0 else 0.0
+        
+        return score
+        
+    except Exception as e:
+        print(f"Error calculating entity score: {e}")
+        return 0.0
 
 # -----------------------------------------------
 # 🔹 Function: Search Documents with Hybrid Retrieval
@@ -245,35 +251,56 @@ def search_documents(query: str, language: str) -> List[Dict[str, Any]]:
         collection_name = f"rag_docs_{'ar' if language == 'arabic' else 'en'}"
         print(f"Searching in collection: {collection_name}")
         
-        search_results = client.search(
+        # First do vector search
+        vector_results = client.search(
             collection_name=collection_name,
             query_vector=query_embedding,
-            limit=10,  # Reduced limit for more focused results
-            score_threshold=0.1  # Higher threshold for better quality
+            limit=20,  # Get more candidates
+            score_threshold=0.3  # Lower threshold to get more candidates
         )
         
-        print(f"Found {len(search_results)} potential matches")
+        print(f"Found {len(vector_results)} vector matches")
         
-        for result in search_results:
-            print(f"Result score: {result.score}")
+        # Process and score results
+        for result in vector_results:
             payload = result.payload
             if payload and "text" in payload:
-                result_data = {
-                    "text": payload["text"],
-                    "score": result.score,
-                    "source": payload.get("metadata", {}).get("source", "unknown"),
-                    "language": language,
-                    "matched_entities": payload.get("metadata", {}).get("entities", {}),
-                    "chunk_index": payload.get("metadata", {}).get("chunk_index", 0),
-                    "total_chunks": payload.get("metadata", {}).get("total_chunks", 0)
-                }
-                results.append(result_data)
-                print(f"Added result from chunk {result_data['chunk_index'] + 1}/{result_data['total_chunks']}")
+                # Calculate BM25 score
+                text = payload["text"]
+                bm25_score = calculate_bm25_score(query, text, language)
+                
+                # Calculate entity match score
+                query_entities = extract_entities(query, language)
+                doc_entities = payload.get("metadata", {}).get("entities", {})
+                entity_score = calculate_entity_score(query_entities, doc_entities)
+                
+                # Combine scores with weights
+                combined_score = (
+                    0.5 * result.score +  # Vector similarity
+                    0.4 * bm25_score +    # Text matching
+                    0.1 * entity_score     # Entity matching
+                )
+                
+                if combined_score >= 0.3:  # Lower threshold to get more results
+                    result_data = {
+                        "text": text,
+                        "score": combined_score,
+                        "vector_score": result.score,
+                        "bm25_score": bm25_score,
+                        "entity_score": entity_score,
+                        "source": payload.get("metadata", {}).get("source", "unknown"),
+                        "language": language,
+                        "matched_entities": doc_entities,
+                        "chunk_index": payload.get("metadata", {}).get("chunk_index", 0),
+                        "total_chunks": payload.get("metadata", {}).get("total_chunks", 0)
+                    }
+                    results.append(result_data)
+                    print(f"Added result with combined score: {combined_score:.2f}")
 
-        # Sort by score and return top results
+        # Sort by combined score and return top results
         results.sort(key=lambda x: x["score"], reverse=True)
         print(f"Returning {len(results)} results")
-        return results[:5]  # Return only top 5 most relevant results
+        return results[:3]  # Return only top 3 most relevant results
 
     except Exception as e:
         print(f"Error searching documents: {e}")
@@ -299,11 +326,15 @@ def generate_response(query: str, results: List[Dict[str, Any]]) -> str:
         
         if not results:
             print("No results found to generate response")
-            return "لم أتمكن من العثور على معلومات محددة حول هذا الموضوع في الوثائق المتاحة"
+            return "لم أتمكن من العثور على معلومات محددة حول هذا الموضوع في الوثائق المتاحة" if any('\u0600' <= char <= '\u06FF' for char in query) else "I couldn't find specific information about this in the available documents"
         
-        # Prepare context from the most relevant source only
-        best_result = results[0]  # Use only the highest scoring result
-        context = f"Source (Score: {best_result.get('score', 0):.2f}, Document: {best_result.get('source', 'unknown')}):\n{best_result.get('text', '')}"
+        # Prepare context from top 3 relevant sources
+        context_parts = []
+        for i, result in enumerate(results[:3], 1):
+            source_info = f"Source {i} (Score: {result.get('score', 0):.2f}, Document: {result.get('source', 'unknown')})"
+            context_parts.append(f"{source_info}:\n{result.get('text', '')}\n")
+        
+        context = "\n".join(context_parts)
         print("Context prepared for response generation")
 
         # Use gemma3:1b model for both languages
@@ -318,56 +349,69 @@ def generate_response(query: str, results: List[Dict[str, Any]]) -> str:
             model=model,
             messages=[{
                 "role": "system",
-                "content": """أنت مساعد ذكي دقيق. مهمتك هي تقديم إجابة واضحة ومباشرة بناءً على المصدر المقدم. يجب أن ترد بنفس لغة السؤال ولا تضيف أي معلومات غير موجودة في المصدر. لا تكرر السؤال في الإجابة. استخدم لغة عربية واضحة وسهلة الفهم."""
+                "content": """أنت مساعد ذكي دقيق. مهمتك هي تقديم إجابة واضحة ومباشرة بناءً على المصادر المقدمة. يجب أن ترد بنفس لغة السؤال ولا تضيف أي معلومات غير موجودة في المصادر. لا تكرر السؤال في الإجابة. استخدم لغة عربية واضحة وسهلة الفهم. إذا كانت المعلومات موجودة في أكثر من مصدر، قم بدمجها بشكل منطقي في إجابة واحدة. ركز على المعلومات المحددة والأرقام والحقائق المذكورة في المصادر. إذا لم تجد معلومات كافية، قل ذلك بوضوح."""
             } if is_arabic else {
                 "role": "system",
-                "content": """You are a precise fact-checking assistant. Your task is to provide a single, clear answer based on the provided source. Respond in the same language as the question. Do not add any information not present in the source. Do not repeat the question in your answer."""
+                "content": """You are a precise fact-checking assistant. Your task is to provide a single, clear answer based on the provided sources. Respond in the same language as the question. Do not add any information not present in the sources. Do not repeat the question in your answer. If information exists across multiple sources, combine it logically into a single answer. Focus on specific information, numbers, and facts mentioned in the sources. If you don't find sufficient information, clearly state that."""
             },
             {
                 "role": "user",
-                "content": f"""بناءً على المصدر التالي، قدم إجابة مباشرة على السؤال. استخدم فقط المعلومات الواردة في هذا المصدر ورد بنفس لغة السؤال.
+                "content": f"""بناءً على المصادر التالية، قدم إجابة مباشرة على السؤال. استخدم فقط المعلومات الواردة في هذه المصادر ورد بنفس لغة السؤال.
 
 السؤال: {query}
 
-المصدر:
+المصادر:
 {context}
 
 تنسيق الإجابة:
-- يجب أن تكون الإجابة جملة واحدة
-- استخدم فقط المعلومات من هذا المصدر
+- يجب أن تكون الإجابة جملة واحدة واضحة
+- استخدم فقط المعلومات من هذه المصادر
+- ركز على المعلومات المحددة والأرقام والحقائق
 - رد بنفس لغة السؤال
 - لا تكرر السؤال في الإجابة
-- لا تضيف أي معلومات غير موجودة في المصدر
+- لا تضيف أي معلومات غير موجودة في المصادر
 - لا تذكر مصادر أو معلومات أخرى
 - استخدم لغة عربية واضحة وسهلة الفهم
-- إذا لم يتم العثور على معلومات ذات صلة، قل "لم أتمكن من العثور على معلومات محددة حول هذا الموضوع في الوثائق المتاحة"
+- إذا كانت المعلومات موجودة في أكثر من مصدر، قم بدمجها بشكل منطقي
+- إذا لم تجد معلومات كافية، قل "لم أتمكن من العثور على معلومات محددة حول هذا الموضوع في الوثائق المتاحة"
 
 مثال على الإجابة الصحيحة:
 السؤال: ما هي قيمة شراكة مايكروسوفت وG42 في الإمارات؟
 الإجابة: أعلنت مايكروسوفت عن استثمار بقيمة 1.5 مليار دولار في شراكة مع G42 لتطوير الذكاء الاصطناعي في الإمارات.
 
-الإجابة:""" if is_arabic else f"""Based on the following source, provide a direct answer to the question. Use only the information provided in this source and respond in the same language as the question.
+الإجابة:""" if is_arabic else f"""Based on the following sources, provide a direct answer to the question. Use only the information provided in these sources and respond in the same language as the question.
 
 Question: {query}
 
-Source:
+Sources:
 {context}
 
 Answer format:
-- Answer must be a single sentence
-- Use only the information from this source
+- Answer must be a single, clear sentence
+- Use only the information from these sources
+- Focus on specific information, numbers, and facts
 - Respond in the same language as the question
 - Do not repeat the question in your answer
-- Do not add any information not in the source
+- Do not add any information not in the sources
 - Do not mention other sources or information
-- If the source doesn't contain relevant information, say "I couldn't find specific information about this in the available documents."
+- If information exists across multiple sources, combine it logically
+- If you don't find sufficient information, say "I couldn't find specific information about this in the available documents"
+
+Example of a good answer:
+Question: What is the value of Microsoft's partnership with G42 in the UAE?
+Answer: Microsoft announced a $1.5 billion investment in a partnership with G42 to develop AI in the UAE.
 
 Answer:"""
             }]
         )
 
+        # Verify response is based on context
+        response_text = response['message']['content'].strip()
+        if not verify_response(response_text, context):
+            return "لم أتمكن من العثور على معلومات كافية في المصادر للإجابة على سؤالك بدقة." if is_arabic else "I couldn't find enough information in the sources to answer your question accurately."
+
         print("Response generated successfully")
-        return response['message']['content'].strip()
+        return response_text
 
     except Exception as e:
         print(f"Error generating response: {e}")
@@ -441,5 +485,27 @@ ARABIC_PROMPT_TEMPLATE = """أنت مساعد ذكي مفيد. بناءً على
 5. تستخدم لغة واضحة ومهنية
 
 الإجابة:"""
+
+def calculate_bm25_score(query: str, text: str, language: str) -> float:
+    """Calculate BM25 score between query and text."""
+    try:
+        # Tokenize the text and query
+        text_tokens = word_tokenize(text.lower())
+        query_tokens = word_tokenize(query.lower())
+        
+        # Create BM25 index
+        bm25 = BM25Okapi([text_tokens])
+        
+        # Calculate score
+        score = bm25.get_scores(query_tokens)[0]
+        
+        # Normalize score to 0-1 range
+        normalized_score = min(1.0, max(0.0, score))
+        
+        return normalized_score
+        
+    except Exception as e:
+        print(f"Error calculating BM25 score: {e}")
+        return 0.0
 
 # End of file - Remove any UI-related code that was here
