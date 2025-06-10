@@ -17,7 +17,25 @@ API_URL = "http://localhost:8000"
 
 def main():
     st.set_page_config(layout="wide") # Use wide layout
-    st.title("Edge RAG Application")
+
+    # Inject CSS for font handling
+    st.markdown("""
+        <style>
+            body {
+                font-family: 'Noto Sans Arabic', sans-serif;
+            }
+            .stExpander, .stTextInput, .stButton, .stText, .stMarkdown, .stSubheader {
+                font-family: 'Noto Sans Arabic', sans-serif !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.title("Edge RAG App Powered by Azure AI Containers")
+    st.markdown("A lightweight RAG system that provides accurate answers by searching through your documents. No model retraining needed - just upload your files and start asking questions.")
+
+    # # Sidebar for Tech Stack Info
+    # st.sidebar.markdown("---\n### Tech Stack")
+    # st.sidebar.markdown("📱 **Frontend**: Streamlit\n🚀 **Backend API**: FastAPI\n📄 **Document Processing**: Azure Document Intelligence, PyPDF2 (for PDFs), Python's built-in file handling (for TXT)\n🔍 **Embedding Model**: Ollama (bge-m3)\n🤖 **LLM**: Ollama (gemma3:1b)\n📊 **Vector Database**: Qdrant\n🔧 **Dependency Management**: Python venv, requirements.txt")
 
     # File upload
     st.header("Upload Document")
@@ -44,8 +62,21 @@ def main():
     
     # Query interface
     st.header("Ask Questions")
-    query = st.text_input("Enter your question:")
     
+    # Initialize session state for the question input
+    if "question" not in st.session_state:
+        st.session_state["question"] = ""
+
+    # The text input always reads its value from session state
+    query = st.text_input("Enter your question:", value=st.session_state["question"], key="main_query_input")
+    
+    # If the user types directly, update the session state variable
+    if "main_query_input" in st.session_state and st.session_state["main_query_input"] != st.session_state["question"]:
+        st.session_state["question"] = st.session_state["main_query_input"]
+    
+    # Ensure the 'query' variable used downstream is always from session state
+    query = st.session_state["question"]
+
     if query:
         # Send query to API
         response = requests.post(
@@ -59,6 +90,14 @@ def main():
             # Display response
             st.subheader("Response")
             st.write(result["response"])
+
+            # Display detected language
+            if "detected_language" in result:
+                st.info(f"Detected Language: {result['detected_language'].upper()}")
+            
+            # Display LLM model used
+            if "llm_model_used" in result:
+                st.info(f"LLM Model Used: {result['llm_model_used']}")
             
             # Display sources with more detail
             st.subheader("Sources")
@@ -70,8 +109,17 @@ def main():
 
     # Example Prompts at the bottom
     st.markdown("---\n### Example Prompts")
-    st.markdown("**English:** What is G42's role in the UAE's technological innovation?")
-    st.markdown("**Arabic:** ما هو التعاون بين G42 ومايكروسوفت؟")
+
+    example_prompts = [
+        {"display": "What is G42's role in the UAE's technological innovation?", "prompt": "What is G42's role in the UAE's technological innovation?"},
+        {"display": "صف تعاون مايكروسوفت مع المجموعة 42 في الإمارات.", "prompt": "صف تعاون مايكروسوفت مع المجموعة 42 في الإمارات."}
+    ]
+
+    for i, item in enumerate(example_prompts):
+        if st.button(item["display"], key=f"prompt_button_{i}"):
+            st.session_state["question"] = item["prompt"]
+            st.success("Prompt copied to input field!")
+            st.rerun() # Rerun to update the input field immediately
 
 if __name__ == "__main__":
     main() 

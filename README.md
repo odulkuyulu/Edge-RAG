@@ -43,7 +43,7 @@ This project provides a robust **Retrieval-Augmented Generation (RAG)** applicat
     ```
 
 4.  **Configure Environment Variables (`.env` file):**
-    Create a `.env` file in the root directory of your project. This file will store sensitive credentials and configuration. **Crucially, for Azure AI Document Intelligence disconnected container functionality, ensure these variables are correctly populated with your container's endpoint and API key.**
+    Create a `.env` file in the root directory of your project. This file will store sensitive credentials and configuration.
 
     ```dotenv
     # Azure AI Language Service (Optional - for future integration if needed)

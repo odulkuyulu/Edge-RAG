@@ -28,3 +28,5 @@ ollama==0.1.6
 # Utilities
 numpy==1.26.4
 pytest==8.0.2
+
+azure-ai-textanalytics

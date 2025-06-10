@@ -9,6 +9,7 @@ from src.models.document_processor import DocumentProcessor
 from src.models.embedding_model import EmbeddingModel
 from src.models.llm_model import LLMModel
 from src.utils.vector_store import VectorStore
+from src.utils.azure_language_service import AzureLanguageService
 
 app = FastAPI(title="Edge RAG API")
 
@@ -24,7 +25,7 @@ app.add_middleware(
 # Initialize components
 document_processor = DocumentProcessor()
 embedding_model = EmbeddingModel()
-llm_model = LLMModel()
+azure_language_service = AzureLanguageService()
 vector_store = VectorStore()
 
 # Pydantic model for query request
@@ -64,6 +65,19 @@ async def upload_document(file: UploadFile = File(...)):
 @app.post("/query")
 async def query_documents(request: QueryRequest):
     try:
+        # Detect query language
+        detected_language = azure_language_service.detect_language(request.query)
+        print(f"Detected language for query: {detected_language}")
+
+        # Select LLM model based on detected language
+        if detected_language == "ar":
+            llm_model_name = "phi4-mini:latest"
+        else:
+            llm_model_name = "gemma3:1b"
+        
+        # Initialize LLMModel with the selected model name
+        llm_model = LLMModel(model_name=llm_model_name)
+
         # Generate query embedding
         query_embedding = embedding_model.generate_embedding(request.query)
         
@@ -83,7 +97,9 @@ async def query_documents(request: QueryRequest):
                     "score": doc.score
                 }
                 for doc in results
-            ]
+            ],
+            "detected_language": detected_language,
+            "llm_model_used": llm_model_name
         }
     
     except Exception as e:
