@@ -11,6 +11,7 @@ qdrant-client==1.7.3
 # Document processing
 python-docx==1.1.0
 PyPDF2==3.0.1
+azure-ai-formrecognizer==3.3.0
 
 # Environment variables
 python-dotenv==1.0.1

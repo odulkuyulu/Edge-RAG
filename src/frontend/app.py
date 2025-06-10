@@ -16,8 +16,9 @@ from pathlib import Path
 API_URL = "http://localhost:8000"
 
 def main():
+    st.set_page_config(layout="wide") # Use wide layout
     st.title("Edge RAG Application")
-    
+
     # File upload
     st.header("Upload Document")
     uploaded_file = st.file_uploader("Choose a file", type=["txt", "pdf"])
@@ -59,12 +60,18 @@ def main():
             st.subheader("Response")
             st.write(result["response"])
             
-            # Display sources
+            # Display sources with more detail
             st.subheader("Sources")
-            for source in result["sources"]:
-                st.write(f"- {source}")
+            for i, source_data in enumerate(result["sources"]):
+                with st.expander(f"Source {i+1}: {source_data['source']} (Accuracy: {source_data['score']:.2f})"):
+                    st.write(source_data['text'])
         else:
             st.error(f"Error getting response: {response.text}")
+
+    # Example Prompts at the bottom
+    st.markdown("---\n### Example Prompts")
+    st.markdown("**English:** What is G42's role in the UAE's technological innovation?")
+    st.markdown("**Arabic:** ما هو التعاون بين G42 ومايكروسوفت؟")
 
 if __name__ == "__main__":
     main() 

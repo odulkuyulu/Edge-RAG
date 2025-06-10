@@ -76,7 +76,14 @@ async def query_documents(request: QueryRequest):
         
         return {
             "response": response,
-            "sources": [doc.metadata["source"] for doc in results]
+            "sources": [
+                {
+                    "text": doc.text,
+                    "source": doc.metadata.get("source", "Unknown"),
+                    "score": doc.score
+                }
+                for doc in results
+            ]
         }
     
     except Exception as e:
