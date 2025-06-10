@@ -25,3 +25,5 @@ logs/
 
 # Ignore .env file to keep secrets safe
 .env
+temp/
+uploads/

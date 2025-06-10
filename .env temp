@@ -1,38 +1,17 @@
-# Azure AI Language Disconnected Container 
-# Used in indexer.py for language detection and named entity recognition 
-# Used in retriever.py for language detection  and named entity recognition 
+# Azure AI Language Service
 AZURE_LANGUAGE_ENDPOINT=
 AZURE_LANGUAGE_KEY=
 
-# Azure Document Intelligence Disconnected Container 
-# Used in indexer.py for document processing and entity extraction 
+# Azure Document Intelligence
 AZURE_DOC_INTEL_ENDPOINT=
 AZURE_DOC_INTEL_KEY=
 
-
 # Qdrant Configuration
-# Used in indexer.py for vector search 
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
 QDRANT_URL=http://localhost:6333
-COLLECTION_NAME=documents
 
 # Processing Configuration
-# Used in indexer.py for chunking and embedding 
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=200
 EMBEDDING_SIZE=1024
-CHUNK_SIZE=200
-CHUNK_OVERLAP=50
-BATCH_SIZE=100
-MAX_RETRIES=3
-RETRY_DELAY=1
-
-# Model Configuration
-# Used in indexer.py for embedding model 
-EMBEDDING_MODEL=bge-m3
-CACHE_EMBEDDINGS=true
-CACHE_SIZE=10000
-
-# Performance Configuration
-# Used in indexer.py for performance configuration 
-MAX_WORKERS=4
-EMBEDDING_TIMEOUT=30
+SEARCH_LIMIT=5
+SCORE_THRESHOLD=0.7
