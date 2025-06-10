@@ -27,3 +27,4 @@ logs/
 .env
 temp/
 uploads/
+.env copy
