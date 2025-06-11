@@ -86,7 +86,7 @@ async def query_documents(request: QueryRequest):
         
         # Generate response using LLM
         context = "\n".join([doc.text for doc in results])
-        response_text = llm_model.generate_response(request.query, context)
+        response_text = llm_model.generate_response(request.query, context, detected_language)
         
         return {
             "response": response_text,

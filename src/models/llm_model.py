@@ -18,11 +18,23 @@ class LLMModel:
         self.model_name = model_name
         self.base_url = base_url
     
-    def generate_response(self, query: str, context: str) -> str:
+    def generate_response(self, query: str, context: str, detected_language: str = "en") -> str:
         """Generate a response using the LLM."""
         try:
-            # Construct the prompt with context
-            prompt = f"""Context: {context}
+            # Construct the prompt with context and language instruction
+            if detected_language == "ar":
+                # Make the instruction the absolute first part of the prompt
+                prompt = "Your response MUST be in Arabic only.\n\n" \
+                         "You are a helpful AI assistant. Use the following context to answer the question.\n" \
+                         "If you cannot find the answer in the context, say so.\n\n" \
+                         f"Context: {context}\n\n" \
+                         f"Question: {query}\n\n" \
+                         "Answer:"
+            else:
+                prompt = f"""You are a helpful AI assistant. Use the following context to answer the question.
+If you cannot find the answer in the context, say so.
+
+Context: {context}
 
 Question: {query}
 

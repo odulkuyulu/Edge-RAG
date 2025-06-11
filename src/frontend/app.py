@@ -154,7 +154,10 @@ def main():
             
             # Display response
             st.subheader("Response")
-            st.write(result["response"])
+            if result["detected_language"] == "ar":
+                st.markdown(f"<div style=\"direction: rtl; text-align: right;\">{result["response"]}</div>", unsafe_allow_html=True)
+            else:
+                st.write(result["response"])
 
             # Display detected language and model info in a stats box
             with st.container():
