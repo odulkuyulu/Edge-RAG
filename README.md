@@ -1,4 +1,4 @@
-# Edge RAG Solution: Local-First & Deployable Anywhere
+# AI Edge RAG Solution
 
 This project provides a robust **Retrieval-Augmented Generation (RAG)** application designed for **edge environments** and **offline capabilities**. It leverages local LLMs (Ollama) and vector databases (Qdrant), alongside enterprise-grade Azure AI services (disconnected containers) for advanced document processing. This solution enables secure, private, and efficient querying of your documents without continuous internet connectivity.
 
@@ -11,6 +11,36 @@ This project provides a robust **Retrieval-Augmented Generation (RAG)** applicat
 *   **Local LLM & Vector DB**: Powered by Ollama for LLM inference and Qdrant for vector search.
 *   **Intuitive UI**: Streamlit web interface for document upload and querying.
 
+## Project Structure
+
+```
+src/
+├── api.py                   # FastAPI backend API
+├── app.py                   # Streamlit web application
+├── embeddings.py            # Text embedding model (Ollama)
+├── indexer.py               # Document indexing logic (Azure DI, Ollama embeddings, Qdrant storage)
+├── retriever.py             # RAG query and LLM response generation (Azure Language, Ollama LLM, Qdrant search)
+├── vector_db.py             # Qdrant vector database client
+└── vector_db_cleaner.py     # Script to clear Qdrant database
+```
+
+## Architecture Diagram
+
+```mermaid
+graph TD
+    A[Streamlit App] --> B(FastAPI API): User Request
+    B --> C{Indexer}: Index Documents
+    B --> D{Retriever}: Answer Query
+
+    C --> G[Azure Document Intelligence]: Extract Text/Structure
+    C --> E_emb[Ollama <br/> (Embeddings)]: Generate Embeddings
+    C --> F[Qdrant]: Store Vectors
+
+    D --> H[Azure Language Service]: Detect Language
+    D --> F: Retrieve Relevant Docs
+    D --> E_llm[Ollama <br/> (LLM)]: Generate Answer
+```
+
 ## Quick Start
 
 To get this RAG solution up and running:
@@ -19,7 +49,7 @@ To get this RAG solution up and running:
 
 2.  **Clone & Setup**:  
     ```bash
-    git clone https://github.com/yourusername/edge-rag.git
+    git clone https://github.com/hamza-roujdami/edge-rag.git
     cd edge-rag
     python3 -m venv venv
     source venv/bin/activate # macOS/Linux
@@ -41,43 +71,26 @@ To get this RAG solution up and running:
 
 5.  **Clear Qdrant (Optional, for fresh start)**:
     ```bash
-    venv/bin/python src/utils/clear_qdrant.py
+    venv/bin/python src/vector_db_cleaner.py
     ```
     
 6.  **Start Application**:  
     ```bash
     # In one terminal for backend API
-    venv/bin/uvicorn src.api.main:app --reload
+    uvicorn src.api:app --reload
 
     # In another terminal for Streamlit frontend
-    venv/bin/streamlit run src/frontend/app.py
+    streamlit run src/app.py
     ```
     Access the app at `http://localhost:8501`.
 
-## Project Structure
-
-```
-src/
-├── api/
-│   └── main.py              # FastAPI backend
-├── frontend/
-│   └── app.py               # Streamlit web app
-├── models/
-│   ├── document_processor.py # Document processing (Azure DI)
-│   ├── embedding_model.py   # Embedding generation (Ollama)
-│   └── llm_model.py         # LLM response generation (Ollama)
-└── utils/
-    ├── clear_qdrant.py      # Clear Qdrant database
-    ├── azure_language_service.py # Azure Language Detection
-    └── vector_store.py      # Qdrant interaction
-```
 
 ## Technology Stack
 
 *   **Frontend**: Streamlit
 *   **Backend API**: FastAPI
-*   **Document Processing**: Azure AI Document Intelligence Service
-*   **Language Detection**: Azure AI Language Service
-*   **Embedding Model**: Ollama (`bge-m3`)
-*   **Large Language Model (LLM)**: Ollama (`gemma3:1b`, `phi4-mini:latest`)
-*   **Vector Database**: Qdrant
+*   **Document Processing**: Azure AI Document Intelligence Service (via `indexer.py`)
+*   **Language Detection**: Azure AI Language Service (via `retriever.py`)
+*   **Embedding Model**: Ollama (`bge-m3`) (via `embeddings.py`)
+*   **Large Language Model (LLM)**: Ollama (`gemma3:1b`, `phi4-mini:latest`) (via `retriever.py`)
+*   **Vector Database**: Qdrant (via `vector_db.py`)
