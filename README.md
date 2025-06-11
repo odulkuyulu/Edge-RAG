@@ -16,6 +16,7 @@ This project provides a robust **Retrieval-Augmented Generation (RAG)** applicat
 To get this RAG solution up and running:
 
 1.  **Prerequisites**: Ensure you have Python 3.9+, Docker, and Ollama installed.
+
 2.  **Clone & Setup**:  
     ```bash
     git clone https://github.com/yourusername/edge-rag.git
@@ -24,7 +25,9 @@ To get this RAG solution up and running:
     source venv/bin/activate # macOS/Linux
     pip install -r requirements.txt
     ```
+
 3.  **Configure `.env`**: Set up `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT`, `AZURE_DOCUMENT_INTELLIGENCE_KEY`, `AZURE_LANGUAGE_ENDPOINT`, `AZURE_LANGUAGE_KEY`, and `QDRANT_URL` in a `.env` file at the project root.
+
 4.  **Run Dependencies**:  
     ```bash
     # Ensure Ollama server is running and models are pulled:
@@ -35,10 +38,12 @@ To get this RAG solution up and running:
     # Start Qdrant via Docker Compose (if not already running):
     docker compose up -d
     ```
+
 5.  **Clear Qdrant (Optional, for fresh start)**:
     ```bash
     venv/bin/python src/utils/clear_qdrant.py
     ```
+    
 6.  **Start Application**:  
     ```bash
     # In one terminal for backend API
@@ -71,7 +76,8 @@ src/
 
 *   **Frontend**: Streamlit
 *   **Backend API**: FastAPI
-*   **Document Processing**: Azure AI Document Intelligence (Disconnected Containers)
+*   **Document Processing**: Azure AI Document Intelligence Service
+*   **Language Detection**: Azure AI Language Service
 *   **Embedding Model**: Ollama (`bge-m3`)
 *   **Large Language Model (LLM)**: Ollama (`gemma3:1b`, `phi4-mini:latest`)
 *   **Vector Database**: Qdrant
