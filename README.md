@@ -1,6 +1,6 @@
-# Offline RAG: Local-First Document Intelligence
+# Offline RAG: Local AI Assistant
 
-A powerful **Retrieval-Augmented Generation (RAG)** system that brings enterprise-grade document intelligence to your local environment. Built with privacy and offline capabilities as core principles, this solution combines the power of local LLMs (Ollama) with Azure AI services in disconnected containers.
+A powerful **Retrieval-Augmented Generation (RAG)** system that brings enterprise-grade AI capabilities to your local environment. Built with privacy and offline capabilities as core principles, this solution combines the power of local LLMs (Ollama) with Azure AI services in disconnected containers.
 
 ## Why Offline RAG?
 
