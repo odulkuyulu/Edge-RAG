@@ -76,6 +76,26 @@ class VectorStore:
         """Delete the collection."""
         self.client.delete_collection(collection_name=self.collection_name)
 
+    def get_unique_sources(self) -> List[str]:
+        """Get a list of unique source files in the vector store."""
+        try:
+            # Get all points from the collection
+            points = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=10000  # Adjust this number based on your needs
+            )[0]
+            
+            # Extract unique source files from metadata
+            sources = set()
+            for point in points:
+                if "metadata" in point.payload and "source" in point.payload["metadata"]:
+                    sources.add(point.payload["metadata"]["source"])
+            
+            return sorted(list(sources))
+        except Exception as e:
+            print(f"Error getting unique sources: {e}")
+            return []
+
     def store_embeddings(self, doc_id: str, chunks: List[Dict[str, Any]], embeddings: List[List[float]]):
         """
         Store document chunks and their embeddings in Qdrant.

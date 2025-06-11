@@ -86,10 +86,10 @@ async def query_documents(request: QueryRequest):
         
         # Generate response using LLM
         context = "\n".join([doc.text for doc in results])
-        response = llm_model.generate_response(request.query, context)
+        response_text = llm_model.generate_response(request.query, context)
         
         return {
-            "response": response,
+            "response": response_text,
             "sources": [
                 {
                     "text": doc.text,
@@ -102,6 +102,15 @@ async def query_documents(request: QueryRequest):
             "llm_model_used": llm_model_name
         }
     
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/indexed-files")
+async def get_indexed_files():
+    try:
+        # Get unique source files from vector store
+        files = vector_store.get_unique_sources()
+        return {"files": files}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
