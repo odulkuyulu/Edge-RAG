@@ -1,6 +1,14 @@
-# AI Edge RAG Solution
+# Offline RAG: Local-First Document Intelligence
 
-This project provides a robust **Retrieval-Augmented Generation (RAG)** application designed for **edge environments** and **offline capabilities**. It leverages local LLMs (Ollama) and vector databases (Qdrant), alongside enterprise-grade Azure AI services (disconnected containers) for advanced document processing. This solution enables secure, private, and efficient querying of your documents without continuous internet connectivity.
+A powerful **Retrieval-Augmented Generation (RAG)** system that brings enterprise-grade document intelligence to your local environment. Built with privacy and offline capabilities as core principles, this solution combines the power of local LLMs (Ollama) with Azure AI services in disconnected containers.
+
+## Why Offline RAG?
+
+- 🔒 **Privacy-First**: Process sensitive documents locally without sending data to the cloud
+- 💻 **Fully Offline**: Complete functionality without any internet connectivity
+- 🚀 **Enterprise-Grade**: Leverages Azure AI services in disconnected containers for advanced document processing
+- 🌍 **Multi-Language**: Native support for multiple languages with optimized models
+- 🛠️ **Developer-Friendly**: Simple setup and intuitive API
 
 ## Project Structure
 
