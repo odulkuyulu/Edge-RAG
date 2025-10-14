@@ -1,221 +1,225 @@
-"""
-Retriever Module
-
-This module implements a sophisticated document retrieval and response generation system that:
-1. Detects the language of incoming queries using Azure Language Service
-2. Generates embeddings for semantic search
-3. Retrieves relevant documents from a vector database
-4. Generates contextual responses using language-specific LLM models
-
-The system supports multiple languages, with special handling for Arabic queries.
-"""
-
-import os
-import ollama
+import os, json, requests, ollama, numpy as np, nltk, logging
 from typing import List, Dict, Any
 from dotenv import load_dotenv
-import requests
-import logging
-from azure.ai.textanalytics import TextAnalyticsClient
-from azure.core.credentials import AzureKeyCredential
+from functools import lru_cache
+from qdrant_client import QdrantClient
+from rank_bm25 import BM25Okapi
+from nltk.tokenize import word_tokenize
 
-from src.embeddings import TextEmbeddingModel
-from src.vector_db import VectorDBClient
+import os
+import nltk
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+nltk_data_path = "C:/Users/odulkuyulu/nltk_data"
+os.environ["NLTK_DATA"] = nltk_data_path
+nltk.data.path.append(nltk_data_path)
 
-# Load environment variables
 load_dotenv()
+nltk.download("punkt_tab", quiet=True)
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
-class Retriever:
-    """
-    A class that orchestrates the entire retrieval and response generation process.
-    
-    This class combines multiple services:
-    - Azure Language Service for language detection
-    - Text embedding generation for semantic search
-    - Vector database for document retrieval
-    - LLM for response generation
-    """
-    
-    def __init__(self):
-        """
-        Initialize the Retriever with all necessary services and clients.
-        Sets up language detection, embedding generation, and vector database connections.
-        """
-        # Initialize Azure Language Service for language detection
-        self.azure_language_endpoint = os.getenv("AZURE_LANGUAGE_ENDPOINT")
-        self.azure_language_key = os.getenv("AZURE_LANGUAGE_KEY")
-        self.text_analytics_client = None
+# Qdrant
+QDRANT_URL=os.getenv("QDRANT_URL","http://localhost:6333"); QDRANT_API_KEY=os.getenv("QDRANT_API_KEY","")
+client=QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
-        if self.azure_language_endpoint and self.azure_language_key:
-            self.text_analytics_client = TextAnalyticsClient(
-                endpoint=self.azure_language_endpoint,
-                credential=AzureKeyCredential(self.azure_language_key)
-            )
-            logger.info("Azure Language client initialized for Retriever.")
-        else:
-            logger.warning("Azure Language credentials not found. Language detection will be skipped in Retriever.")
+# Azure Language
+AZURE_LANGUAGE_ENDPOINT=os.getenv("AZURE_LANGUAGE_ENDPOINT"); AZURE_LANGUAGE_KEY=os.getenv("AZURE_LANGUAGE_KEY")
 
-        # Initialize embedding generator for semantic search
-        self.embedding_generator = TextEmbeddingModel()
-        logger.info("Text embedding model initialized.")
+# Defaults (UI can override)
+DEFAULT_EMBED_MODEL=os.getenv("EMBEDDING_MODEL","qwen2.5:0.5b")
+DEFAULT_GEN_MODEL  =os.getenv("GENERATION_MODEL","gemma3:1b")
 
-        # Initialize vector database for document storage and retrieval
-        self.vector_store = VectorDBClient()
-        logger.info("Vector database client initialized.")
+def _slug(m:str)->str: return m.replace("/", "_").replace(":", "_")
+def _bge(m:str)->bool: return "bge" in m.lower()
 
-    def _detect_language(self, text: str) -> str:
-        """
-        Detect the language of the input text using Azure Language Service.
-        
-        Args:
-            text (str): The input text to detect language for
-            
-        Returns:
-            str: ISO 639-1 language code (e.g., 'en' for English, 'ar' for Arabic)
-                 Defaults to 'en' if detection fails
-        """
-        if not self.text_analytics_client:
-            logger.warning("Language detection service not available, defaulting to English.")
-            return "en"
+def detect_language_azure(text:str)->Dict[str,Any]:
+    try:
+        url=f"{AZURE_LANGUAGE_ENDPOINT.rstrip('/')}/language/:analyze-text?api-version=2023-04-01"
+        r=requests.post(url,headers={"Content-Type":"application/json","Ocp-Apim-Subscription-Key":AZURE_LANGUAGE_KEY},
+                        json={"kind":"LanguageDetection","analysisInput":{"documents":[{"id":"1","text":text}]}})
+        r.raise_for_status()
+        docs=r.json().get("results",{}).get("documents",[])
+        if docs:
+            iso=docs[0]["detectedLanguage"]["iso6391Name"]
+            return {"language": "arabic" if iso=="ar" else "english", "confidence": docs[0]["detectedLanguage"]["confidenceScore"]}
+    except Exception as e:
+        log.error(f"Lang detect err: {e}")
+    return {"language":"english","confidence":0.0}
 
+def extract_entities_azure(text:str, language:str)->Dict[str,List[str]]:
+    try:
+        url=f"{AZURE_LANGUAGE_ENDPOINT.rstrip('/')}/language/:analyze-text?api-version=2023-04-01"
+        r=requests.post(url,headers={"Content-Type":"application/json","Ocp-Apim-Subscription-Key":AZURE_LANGUAGE_KEY},
+                        json={"kind":"EntityRecognition","analysisInput":{"documents":[{"id":"1","text":text,"language":"ar" if language=="arabic" else "en"}]}})
+        r.raise_for_status()
+        out={}
+        for doc in r.json().get("results",{}).get("documents",[]):
+            for e in doc.get("entities",[]):
+                out.setdefault(e["category"],[])
+                if e["text"] not in out[e["category"]]: out[e["category"]].append(e["text"])
+        return out
+    except Exception as e:
+        log.error(f"Entities err: {e}"); return {}
+
+def extract_key_phrases_azure(text:str, language:str)->List[str]:
+    try:
+        url=f"{AZURE_LANGUAGE_ENDPOINT.rstrip('/')}/language/:analyze-text?api-version=2023-04-01"
+        r=requests.post(url,headers={"Content-Type":"application/json","Ocp-Apim-Subscription-Key":AZURE_LANGUAGE_KEY},
+                        json={"kind":"KeyPhraseExtraction","analysisInput":{"documents":[{"id":"1","text":text,"language":"ar" if language=="arabic" else "en"}]}})
+        r.raise_for_status()
+        phrases=[]
+        for doc in r.json().get("results",{}).get("documents",[]): phrases.extend(doc.get("keyPhrases",[]))
+        return phrases
+    except Exception as e:
+        log.error(f"Keyphrases err: {e}"); return []
+def analyze_sentiment_azure(text:str, language:str)->Dict[str,float]:
+    try:
+        url=f"{AZURE_LANGUAGE_ENDPOINT.rstrip('/')}/language/:analyze-text?api-version=2023-04-01"
+        r=requests.post(url,headers={"Content-Type":"application/json","Ocp-Apim-Subscription-Key":AZURE_LANGUAGE_KEY},
+                        json={"kind":"SentimentAnalysis","analysisInput":{"documents":[{"id":"1","text":text,"language":"ar" if language=="arabic" else "en"}]}})
+        r.raise_for_status()
+        for doc in r.json().get("results",{}).get("documents",[]):
+            cs=doc.get("confidenceScores")
+            if cs: return {"positive":cs["positive"],"neutral":cs["neutral"],"negative":cs["negative"]}
+    except Exception as e:
+        log.error(f"Sentiment err: {e}")
+    return {"positive":0.0,"neutral":0.0,"negative":0.0}
+
+@lru_cache(maxsize=1000)
+def _embed(text:str, language:str, model:str, role:str)->List[float]:
+    prompt = f"{role}: {text}" if _bge(model) else text
+    resp = ollama.embeddings(model=model, prompt=prompt)
+    return resp["embedding"]
+
+def search_documents(query:str, language:str=None, embed_model:str=DEFAULT_EMBED_MODEL, gen_model:str=DEFAULT_GEN_MODEL)->List[Dict[str,Any]]:
+    try:
+        if not language:
+            language = detect_language_azure(query)["language"]
+        lang_code = "ar" if language=="arabic" else "en"
+
+        q_entities = extract_entities_azure(query, language)
+        q_phrases  = extract_key_phrases_azure(query, language)
+        q_sent     = analyze_sentiment_azure(query, language)
+
+        q_vec = _embed(query, language, model=embed_model, role="query")
+
+        # Only search the model-specific collection for the detected language
+        coll_name = f"rag_docs_{lang_code}_{_slug(embed_model)}"
+        log.info(f"[RAG] Searching collection: {coll_name}")
+        hits = []
         try:
-            documents = [text]
-            response = self.text_analytics_client.detect_language(documents, country_hint="us")
-            
-            if response and response[0].primary_language:
-                detected_lang = response[0].primary_language.iso6391_name
-                logger.info(f"Detected language: {detected_lang}")
-                return detected_lang
-            else:
-                logger.warning("Language detection failed, defaulting to English.")
-                return "en"
-        except Exception as e:
-            logger.error(f"Error detecting language with Azure Language Service: {e}")
-            return "en"
+            hits = client.search(collection_name=coll_name, query_vector=q_vec, limit=20)
+            log.info(f"[RAG] Collection '{coll_name}' returned {len(hits)} hits.")
+            if hits:
+                log.info(f"[RAG] Top hit text: {hits[0].payload.get('text') if hits[0].payload else ''}")
+        except Exception as ex:
+            log.warning(f"[RAG] Collection '{coll_name}' search failed: {ex}")
+        if not hits:
+            log.warning("[RAG] No hits found in the collection.")
+            return []
 
-    def _generate_llm_response(self, query: str, context: str, model_name: str, detected_language: str) -> str:
-        """
-        Generate a response using the specified LLM model.
-        
-        Args:
-            query (str): The user's question
-            context (str): Retrieved context from vector database
-            model_name (str): Name of the LLM model to use
-            detected_language (str): Detected language code
-            
-        Returns:
-            str: Generated response from the LLM
-            
-        Raises:
-            Exception: If communication with LLM service fails
-        """
-        base_url = os.getenv("OLLAMA_API_BASE_URL", "http://localhost:11434")
-        try:
-            # Construct language-specific prompt
-            if detected_language == "ar":
-                prompt = "Your response MUST be in Arabic only.\n\n" \
-                         "You are a helpful AI assistant. Use the following context to answer the question.\n" \
-                         "If you cannot find the answer in the context, say so.\n\n" \
-                         f"Context: {context}\n\n" \
-                         f"Question: {query}\n\n" \
-                         "Answer:"
-            else:
-                prompt = f"""You are a helpful AI assistant. Use the following context to answer the question.
-If you cannot find the answer in the context, say so.
+        # BM25 across candidate set (not per doc)
+        cand_texts=[]
+        for h in hits:
+            p=h.payload or {}
+            cand_texts.append(p.get("text") or (p.get("metadata") or {}).get("text",""))
+        tokenized = [word_tokenize(t.lower()) for t in cand_texts]
+        bm25 = BM25Okapi(tokenized)
+        q_tokens=word_tokenize(query.lower())
+        bm_raw = bm25.get_scores(q_tokens)
+        bm_min, bm_max = float(np.min(bm_raw)), float(np.max(bm_raw))
+        bm_norm=[(s-bm_min)/(bm_max-bm_min+1e-9) for s in bm_raw]
 
-Context: {context}
+        results=[]
+        for i,h in enumerate(hits):
+            doc=h.payload or {}; meta=doc.get("metadata",{})
+            text = doc.get("text") or meta.get("text","")
+            src  = doc.get("source") or meta.get("source","unknown")
+            cid  = doc.get("chunk_id") or meta.get("chunk_id") or meta.get("chunk_index",0)
+            tchunks = doc.get("total_chunks") or meta.get("total_chunks",1)
+            d_entities = doc.get("entities") or meta.get("entities",{})
+            if isinstance(d_entities,str):
+                try: d_entities=json.loads(d_entities)
+                except: d_entities={}
+            d_phrases = doc.get("key_phrases") or meta.get("key_phrases",[])
+            if isinstance(d_phrases,str):
+                try: d_phrases=json.loads(d_phrases)
+                except: d_phrases=[]
+            d_sent = doc.get("sentiment") or meta.get("sentiment",{})
 
-Question: {query}
+            v=h.score
+            e=_ent_score(q_entities,d_entities)
+            p=_phrase_score(q_phrases,d_phrases)
+            s=_sent_score(q_sent,d_sent)
+            b=bm_norm[i]
+            final=0.55*v+0.20*b+0.15*e+0.10*p+0.00*s
 
-Answer:"""
-            
-            logger.info(f"Sending request to Ollama API for model: {model_name}")
-            response = requests.post(
-                f"{base_url}/api/generate",
-                json={
-                    "model": model_name,
-                    "prompt": prompt,
-                    "stream": False
-                }
-            )
-            response.raise_for_status()
-            return response.json()["response"]
-        
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to communicate with Ollama API: {e}")
-            raise Exception(f"Failed to communicate with LLM service: {str(e)}")
-        except Exception as e:
-            logger.error(f"Unexpected error generating LLM response: {e}")
-            raise Exception(f"Failed to generate LLM response: {str(e)}")
+            matched={}
+            if isinstance(d_entities,dict) and isinstance(q_entities,dict):
+                for cat,ents in d_entities.items():
+                    if cat in q_entities:
+                        qset=set(x.lower() for x in q_entities[cat])
+                        matched[cat]=[x for x in ents if x.lower() in qset]
 
-    def retrieve_and_generate_response(self, query: str) -> Dict[str, Any]:
-        """
-        Main method that orchestrates the entire retrieval and response generation process.
-        
-        Args:
-            query (str): The user's question
-            
-        Returns:
-            Dict[str, Any]: A dictionary containing:
-                - response: The generated response
-                - sources: List of source documents with metadata
-                - detected_language: The detected language code
-                - llm_model_used: The LLM model used for generation
-                
-        Raises:
-            Exception: If any step in the process fails
-        """
-        try:
-            # 1. Detect query language
-            detected_language = self._detect_language(query)
-            logger.info(f"Processing query in language: {detected_language}")
+            results.append({"text":text,"score":float(final),"vector_score":float(v),"entity_score":float(e),
+                            "source":src,"chunk_id":int(cid),"total_chunks":int(tchunks),
+                            "language":language,"matched_entities":matched})
+        results.sort(key=lambda x:x["score"], reverse=True)
+        return results[:10]
+    except Exception as e:
+        log.error(f"search_documents err: {e}")
+        return []
 
-            # 2. Select appropriate LLM model based on language
-            if detected_language == "ar":
-                llm_model_name = "phi4-mini:latest"  # Model optimized for Arabic
-            else:
-                llm_model_name = "gemma3:1b"  # Default model for other languages
-            logger.info(f"Selected LLM model: {llm_model_name}")
-            
-            # 3. Generate query embedding for semantic search
-            logger.info("Generating query embedding...")
-            query_embedding = self.embedding_generator.generate_embedding(query)
-            
-            # 4. Search for relevant documents in vector database
-            logger.info("Searching for relevant documents...")
-            results = self.vector_store.search(query_embedding, limit=5)
-            if not results:
-                logger.warning("No relevant documents found for query.")
-                return {
-                    "response": "I couldn't find any relevant information in the documents to answer your question.",
-                    "sources": [],
-                    "detected_language": detected_language,
-                    "llm_model_used": llm_model_name
-                }
-            
-            # 5. Generate response using LLM with retrieved context
-            logger.info("Generating response using LLM...")
-            context = "\n".join([doc.text for doc in results])
-            response_text = self._generate_llm_response(query, context, llm_model_name, detected_language)
-            
-            # 6. Return comprehensive response with metadata
-            return {
-                "response": response_text,
-                "sources": [
-                    {
-                        "text": doc.text,
-                        "source": doc.metadata.get("source", "Unknown"),
-                        "score": doc.score
-                    }
-                    for doc in results
-                ],
-                "detected_language": detected_language,
-                "llm_model_used": llm_model_name
-            }
-        except Exception as e:
-            logger.error(f"Error in retrieve_and_generate_response: {e}")
-            raise Exception(f"Failed to process query: {str(e)}") 
+def _ent_score(q:Dict[str,List[str]], d:Dict[str,List[str]])->float:
+    try:
+        if not q or not d: return 0.0
+        if isinstance(d,str):
+            try: d=json.loads(d)
+            except: return 0.0
+        matches=0; total=sum(len(v) for v in q.values()) or 1
+        for cat,ents in q.items():
+            dset=set(x.lower() for x in d.get(cat,[]))
+            for e in ents:
+                if e.lower() in dset: matches+=1
+        return matches/total
+    except: return 0.0
+
+def _phrase_score(qp:List[str], dp:List[str])->float:
+    try:
+        if not qp or not dp: return 0.0
+        if isinstance(dp,str):
+            try: dp=json.loads(dp)
+            except: return 0.0
+        qset=set(x.lower() for x in qp); dset=set(x.lower() for x in dp)
+        inter=qset & dset
+        return len(inter)/(len(qset) or 1)
+    except: return 0.0
+
+def _sent_score(qs:Dict[str,float], ds:Dict[str,float])->float:
+    try:
+        if not qs or not ds or not isinstance(ds,dict): return 0.0
+        return 0.4*(1-abs(qs.get("positive",0)-ds.get("positive",0))) + \
+               0.2*(1-abs(qs.get("neutral",0)-ds.get("neutral",0))) + \
+               0.4*(1-abs(qs.get("negative",0)-ds.get("negative",0)))
+    except: return 0.0
+
+def generate_response(query:str, results:List[Dict[str,Any]], gen_model:str=DEFAULT_GEN_MODEL)->str:
+    try:
+        if not results:
+            return "لم أجد معلومات كافية في الوثائق المتاحة." if any('\u0600'<=c<='\u06FF' for c in query) \
+                   else "I couldn't find specific information in the available documents."
+        ctx=[]
+        for i,r in enumerate(results[:3],1):
+            ctx.append(f"Source {i} (Score: {r.get('score',0):.2f}, Document: {r.get('source','unknown')}):\n{r.get('text','')}\n")
+        context="\n".join(ctx)
+        is_ar = any('\u0600'<=c<='\u06FF' for c in query)
+        sys_ar="أنت مساعد دقيق. أجب بجملة واحدة وبنفس لغة السؤال اعتماداً فقط على المصادر أدناه."
+        sys_en="You are precise. Answer in one clear sentence, same language as the question, using only the sources below."
+        resp=ollama.chat(model=gen_model, messages=[
+            {"role":"system","content": sys_ar if is_ar else sys_en},
+            {"role":"user","content": f"Question: {query}\n\nSources:\n{context}\n\nAnswer in one sentence using ONLY these sources."}
+        ])
+        return resp["message"]["content"].strip()
+    except Exception as e:
+        log.error(f"gen_response err: {e}")
+        return "عذراً، حدث خطأ." if any('\u0600'<=c<='\u06FF' for c in query) else "Sorry, something went wrong."

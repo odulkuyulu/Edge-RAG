@@ -1,32 +1,14 @@
-# Core dependencies
-fastapi==0.109.2
-uvicorn==0.27.1
-python-multipart==0.0.9
-streamlit==1.31.1
-requests==2.31.0
-
-# Vector store
-qdrant-client==1.7.3
-
-# Document processing
-python-docx==1.1.0
-PyPDF2==3.0.1
-azure-ai-formrecognizer==3.3.0
-
-# Environment variables
-python-dotenv==1.0.1
-
-# Type hints
-typing-extensions==4.9.0
-
-# Frontend
-streamlit==1.31.1
-
-# Local models
-ollama==0.1.6
-
-# Utilities
-numpy==1.26.4
-pytest==8.0.2
-
+ollama # this is for the embedding / response model
+qdrant-client # this is for the vector search
+semantic-kernel
+streamlit  # Optional for a simple UI
+rank-bm25 # this is for the embedding model
+nltk # this is for the language detection
+farasa # this is for the language detection
+sentence-transformers # this is for the embedding model
+python-magic # this is for the file type detection
+azure-ai-formrecognizer
+azure-core==1.30.1
 azure-ai-textanalytics==5.3.0
+pytest
+PyPDF2
