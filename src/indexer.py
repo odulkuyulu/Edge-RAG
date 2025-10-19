@@ -165,78 +165,179 @@ def _pages_from_di_result(result):
  
 def process_with_document_intelligence(file_path: str) -> Dict[str,Any]:
     import PyPDF2
+    
     # 1. Try Azure Document Intelligence if available
     if HAS_DI:
         try:
             with open(file_path,"rb") as f:
                 poller = di_client.begin_analyze_document("prebuilt-document", f)
             res = poller.result()
-            out = {"text": res.content, "tables":[], "key_value_pairs":[], "entities":[], "metadata": {"page_count": len(res.pages)}}
-            for t in res.tables:
-                table={"row_count":t.row_count,"column_count":t.column_count,"cells":[]}
-                for c in t.cells: table["cells"].append({"text":c.content,"row_index":c.row_index,"column_index":c.column_index})
-                out["tables"].append(table)
-            for kv in res.key_value_pairs:
-                if kv.key and kv.value: out["key_value_pairs"].append({"key":kv.key.content,"value":kv.value.content,"confidence":kv.confidence})
-            for e in res.entities:
-                out["entities"].append({"text":e.text,"category":e.category,"confidence":e.confidence})
-            return out
+            
+            # Check if we got meaningful text
+            if res.content and len(res.content.strip()) > 10:
+                out = {
+                    "text": res.content, 
+                    "tables": [], 
+                    "key_value_pairs": [], 
+                    "entities": [], 
+                    "metadata": {"page_count": len(res.pages), "method": "azure_di"}
+                }
+                
+                # Extract tables
+                for t in res.tables:
+                    table = {"row_count": t.row_count, "column_count": t.column_count, "cells": []}
+                    for c in t.cells: 
+                        table["cells"].append({
+                            "text": c.content, 
+                            "row_index": c.row_index, 
+                            "column_index": c.column_index
+                        })
+                    out["tables"].append(table)
+                
+                # Extract key-value pairs
+                for kv in res.key_value_pairs:
+                    if kv.key and kv.value: 
+                        out["key_value_pairs"].append({
+                            "key": kv.key.content, 
+                            "value": kv.value.content, 
+                            "confidence": kv.confidence
+                        })
+                
+                # Extract entities (check if available)
+                if hasattr(res, 'entities') and res.entities:
+                    for e in res.entities:
+                        out["entities"].append({
+                            "text": e.text, 
+                            "category": e.category, 
+                            "confidence": e.confidence
+                        })
+                
+                print(f"[PDF] Azure DI extracted {len(res.content)} characters from '{file_path}'")
+                return out
+            else:
+                print(f"[PDF] Azure DI returned minimal text ({len(res.content if res.content else 0)} chars), trying fallback")
         except Exception as e:
             print(f"[PDF] Azure DI failed: {e}")
-    # 2. Try PyPDF2 for text extraction
+    
+    # 2. Try PyPDF2 for text-based PDFs
     try:
         with open(file_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
             text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        print(f"[PDF] PyPDF2 extracted {len(text)} characters from '{file_path}'")
-        return {"text": text, "tables":[], "key_value_pairs":[], "entities":[], "metadata":{}}
+        
+        # Check if we got meaningful text
+        if text.strip() and len(text.strip()) > 10:
+            print(f"[PDF] PyPDF2 extracted {len(text)} characters from '{file_path}'")
+            return {
+                "text": text, 
+                "tables": [], 
+                "key_value_pairs": [], 
+                "entities": [], 
+                "metadata": {"method": "pypdf2"}
+            }
+        else:
+            print(f"[PDF] PyPDF2 extracted minimal text ({len(text.strip())} chars), trying OCR")
     except Exception as e:
-        print(f"[PDF] PyPDF2 extract err: {e}")
-    # 3. Last resort: decode as bytes (may be garbage)
+        print(f"[PDF] PyPDF2 extract error: {e}")
+    
+    # 3. OCR fallback for scanned PDFs
     try:
-        with open(file_path,"rb") as f:
-            raw = f.read().decode("utf-8",errors="ignore")
-        print(f"[PDF] WARNING: Decoding raw bytes for '{file_path}', result may be garbage!")
-        return {"text": raw, "tables":[], "key_value_pairs":[], "entities":[], "metadata":{}}
-    except Exception as e:
-        print(f"[PDF] Final fallback failed: {e}")
-        return {"text": "", "tables":[], "key_value_pairs":[], "entities":[], "metadata":{}}
-        import PyPDF2
-        if not HAS_DI:
-            # Fallback: Try PyPDF2 for text extraction
-            try:
-                with open(file_path, "rb") as f:
-                    reader = PyPDF2.PdfReader(f)
-                    text = "\n".join(page.extract_text() or "" for page in reader.pages)
-                return {"text": text, "tables":[], "key_value_pairs":[], "entities":[], "metadata":{}}
-            except Exception as e:
-                print(f"PDF extract err: {e}")
-                return {"text": "", "tables":[], "key_value_pairs":[], "entities":[], "metadata":{}}
+        import pytesseract
+        from pdf2image import convert_from_path
+        
+        # Set Tesseract executable path (common Windows installation paths)
+        tesseract_paths = [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            r"C:\Users\{}\AppData\Local\Tesseract-OCR\tesseract.exe".format(os.getenv('USERNAME', '')),
+            r"C:\Tesseract-OCR\tesseract.exe"
+        ]
+        
+        # Try to find Tesseract executable
+        tesseract_found = False
+        for path in tesseract_paths:
+            if os.path.exists(path):
+                pytesseract.pytesseract.tesseract_cmd = path
+                tesseract_found = True
+                print(f"[PDF] Found Tesseract at: {path}")
+                break
+        
+        if not tesseract_found:
+            print(f"[PDF] Tesseract not found in common paths. Please install Tesseract OCR.")
+            print(f"[PDF] Common paths checked: {tesseract_paths}")
+            raise FileNotFoundError("Tesseract executable not found")
+        
+        print(f"[PDF] Attempting OCR extraction for '{file_path}'")
+        
+        # Try to convert PDF pages to images
         try:
-            with open(file_path,"rb") as f:
-                poller = di_client.begin_analyze_document("prebuilt-document", f)
-            res = poller.result()
-            out = _pages_from_di_result(res)
-            for t in res.tables:
-                table={"row_count":t.row_count,"column_count":t.column_count,"cells":[]}
-                for c in t.cells: table["cells"].append({"text":c.content,"row_index":c.row_index,"column_index":c.column_index})
-                out["tables"].append(table)
-            for kv in res.key_value_pairs:
-                if kv.key and kv.value: out["key_value_pairs"].append({"key":kv.key.content,"value":kv.value.content,"confidence":kv.confidence})
-            for e in res.entities:
-                out["entities"].append({"text":e.text,"category":e.category,"confidence":e.confidence})
-            return out
-        except Exception as e:
-            print(f"DI err: {e}")
-            # Fallback: Try PyPDF2 for text extraction
+            # First try without specifying poppler path (if it's in PATH)
+            pages = convert_from_path(file_path, dpi=300)
+        except Exception as e1:
+            # If that fails, try with common Windows poppler paths
+            poppler_paths = [
+                r"C:\Program Files\poppler\bin",
+                r"C:\Program Files (x86)\poppler\bin", 
+                r"C:\poppler\bin",
+                r"C:\tools\poppler\bin"
+            ]
+            
+            pages = None
+            for poppler_path in poppler_paths:
+                if os.path.exists(poppler_path):
+                    try:
+                        print(f"[PDF] Trying poppler at: {poppler_path}")
+                        pages = convert_from_path(file_path, dpi=300, poppler_path=poppler_path)
+                        print(f"[PDF] Successfully using poppler at: {poppler_path}")
+                        break
+                    except Exception as e2:
+                        continue
+            
+            if pages is None:
+                print(f"[PDF] Poppler not found. Please install poppler-utils:")
+                print(f"[PDF] Download from: https://github.com/oschwartz10612/poppler-windows/releases/")
+                print(f"[PDF] Extract to C:\\poppler\\ and add C:\\poppler\\bin to PATH")
+                raise Exception("Poppler not available for PDF to image conversion")
+        
+        ocr_text = []
+        for i, page in enumerate(pages):
             try:
-                with open(file_path, "rb") as f:
-                    reader = PyPDF2.PdfReader(f)
-                    text = "\n".join(page.extract_text() or "" for page in reader.pages)
-                return {"text": text, "tables":[], "key_value_pairs":[], "entities":[], "metadata":{}}
-            except Exception as e2:
-                print(f"PDF extract err: {e2}")
-                return {"text": "", "tables":[], "key_value_pairs":[], "entities":[], "metadata":{}}
+                # Extract text from image using OCR
+                page_text = pytesseract.image_to_string(page, lang='ara+eng')  # Arabic + English
+                if page_text.strip():
+                    ocr_text.append(f"--- Page {i+1} ---\n{page_text.strip()}")
+            except Exception as page_error:
+                print(f"[PDF] OCR failed for page {i+1}: {page_error}")
+                continue
+        
+        final_text = "\n\n".join(ocr_text)
+        
+        if final_text.strip():
+            print(f"[PDF] OCR extracted {len(final_text)} characters from {len(pages)} pages in '{file_path}'")
+            return {
+                "text": final_text,
+                "tables": [],
+                "key_value_pairs": [],
+                "entities": [],
+                "metadata": {"method": "ocr", "pages_processed": len(pages)}
+            }
+        else:
+            print(f"[PDF] OCR failed to extract meaningful text")
+            
+    except ImportError:
+        print(f"[PDF] OCR libraries not available. Install with: pip install pytesseract pdf2image")
+    except Exception as e:
+        print(f"[PDF] OCR extraction failed: {e}")
+    
+    # 4. Last resort: return empty result
+    print(f"[PDF] All extraction methods failed for '{file_path}'")
+    return {
+        "text": "", 
+        "tables": [], 
+        "key_value_pairs": [], 
+        "entities": [], 
+        "metadata": {"method": "failed"}
+    }
 
 def index_document(file_path: str, content: Union[str,bytes], metadata: Dict[str,Any]=None, embed_model: str=DEFAULT_EMBED_MODEL) -> bool:
     try:
