@@ -5,6 +5,7 @@ from functools import lru_cache
 from qdrant_client import QdrantClient
 from rank_bm25 import BM25Okapi
 from nltk.tokenize import word_tokenize
+import container_language
 
 import os
 import nltk
@@ -33,6 +34,8 @@ def _slug(m:str)->str: return m.replace("/", "_").replace(":", "_")
 def _bge(m:str)->bool: return "bge" in m.lower()
 
 def detect_language_azure(text:str)->Dict[str,Any]:
+    if container_language.enabled():
+        return container_language.detect_language(text)
     try:
         url=f"{AZURE_LANGUAGE_ENDPOINT.rstrip('/')}/language/:analyze-text?api-version=2023-04-01"
         r=requests.post(url,headers={"Content-Type":"application/json","Ocp-Apim-Subscription-Key":AZURE_LANGUAGE_KEY},
@@ -47,6 +50,13 @@ def detect_language_azure(text:str)->Dict[str,Any]:
     return {"language":"english","confidence":0.0}
 
 def extract_entities_azure(text:str, language:str)->Dict[str,List[str]]:
+    if container_language.enabled():
+        entities = {}
+        for entity in container_language.extract_entities(text, language):
+            values = entities.setdefault(entity["category"], [])
+            if entity["text"] not in values:
+                values.append(entity["text"])
+        return entities
     try:
         url=f"{AZURE_LANGUAGE_ENDPOINT.rstrip('/')}/language/:analyze-text?api-version=2023-04-01"
         r=requests.post(url,headers={"Content-Type":"application/json","Ocp-Apim-Subscription-Key":AZURE_LANGUAGE_KEY},
@@ -62,6 +72,8 @@ def extract_entities_azure(text:str, language:str)->Dict[str,List[str]]:
         log.error(f"Entities err: {e}"); return {}
 
 def extract_key_phrases_azure(text:str, language:str)->List[str]:
+    if container_language.enabled():
+        return container_language.extract_key_phrases(text, language)
     try:
         url=f"{AZURE_LANGUAGE_ENDPOINT.rstrip('/')}/language/:analyze-text?api-version=2023-04-01"
         r=requests.post(url,headers={"Content-Type":"application/json","Ocp-Apim-Subscription-Key":AZURE_LANGUAGE_KEY},
@@ -73,6 +85,8 @@ def extract_key_phrases_azure(text:str, language:str)->List[str]:
     except Exception as e:
         log.error(f"Keyphrases err: {e}"); return []
 def analyze_sentiment_azure(text:str, language:str)->Dict[str,float]:
+    if container_language.enabled():
+        return container_language.analyze_sentiment(text, language)
     try:
         url=f"{AZURE_LANGUAGE_ENDPOINT.rstrip('/')}/language/:analyze-text?api-version=2023-04-01"
         r=requests.post(url,headers={"Content-Type":"application/json","Ocp-Apim-Subscription-Key":AZURE_LANGUAGE_KEY},

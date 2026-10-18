@@ -1,0 +1,78 @@
+name: edge-rag-local-ai
+
+x-language-environment: &language-environment
+  Eula: accept
+  Billing: ${AZURE_LANGUAGE_BILLING_URL:-${AZURE_LANGUAGE_ENDPOINT:?Language billing endpoint required}}
+  ApiKey: ${AZURE_LANGUAGE_KEY:?Language key required}
+
+x-document-environment: &document-environment
+  Eula: accept
+  Billing: ${AZURE_DOCUMENT_INTELLIGENCE_BILLING_URL:-${AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT:?Document Intelligence billing endpoint required}}
+  ApiKey: ${AZURE_DOCUMENT_INTELLIGENCE_KEY:?Document Intelligence key required}
+
+services:
+  language:
+    image: mcr.microsoft.com/azure-cognitive-services/textanalytics/language:latest
+    environment: *language-environment
+    ports: ["127.0.0.1:5000:5000"]
+    mem_limit: 6g
+    restart: unless-stopped
+
+  ner:
+    image: mcr.microsoft.com/azure-cognitive-services/textanalytics/ner:latest
+    environment: *language-environment
+    ports: ["127.0.0.1:5001:5000"]
+    mem_limit: 8g
+    restart: unless-stopped
+
+  keyphrase:
+    image: mcr.microsoft.com/azure-cognitive-services/textanalytics/keyphrase:latest
+    environment: *language-environment
+    ports: ["127.0.0.1:5002:5000"]
+    mem_limit: 4g
+    restart: unless-stopped
+
+  sentiment:
+    image: mcr.microsoft.com/azure-cognitive-services/textanalytics/sentiment:3.0-en
+    environment: *language-environment
+    ports: ["127.0.0.1:5003:5000"]
+    mem_limit: 4g
+    restart: unless-stopped
+
+  document:
+    image: mcr.microsoft.com/azure-cognitive-services/form-recognizer/document-3.0:latest
+    environment:
+      <<: *document-environment
+      AzureCognitiveServiceLayoutHost: http://layout:5000
+    ports: ["127.0.0.1:5010:5050"]
+    mem_limit: 12g
+    depends_on: [layout]
+    restart: unless-stopped
+
+  layout:
+    image: mcr.microsoft.com/azure-cognitive-services/form-recognizer/layout-3.0:latest
+    environment: *document-environment
+    mem_limit: 16g
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.5
+    ports: ["127.0.0.1:6333:6333", "127.0.0.1:6334:6334"]
+    volumes: [qdrant-storage:/qdrant/storage]
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.12.3
+    environment:
+      OLLAMA_MODELS: /models
+    ports: ["127.0.0.1:11435:11434"]
+    volumes:
+      - type: bind
+        source: ${OLLAMA_MODELS_PATH:-${USERPROFILE}\.ollama\models}
+        target: /models
+        read_only: true
+    mem_limit: 8g
+    restart: unless-stopped
+
+volumes:
+  qdrant-storage:

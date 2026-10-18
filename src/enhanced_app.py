@@ -7,6 +7,7 @@ import streamlit as st
 import requests
 import os
 import json
+import container_language
 from datetime import datetime
 from enhanced_indexer import enhanced_index_document, EnhancedDocumentProcessor
 from enhanced_retriever import enhanced_search_documents
@@ -63,6 +64,12 @@ def main():
     # Header
     st.title("🧠 Enhanced Edge RAG System")
     st.markdown("*Advanced Document Processing with Intelligent Chunking & Context-Aware Retrieval*")
+    if container_language.enabled():
+        st.info(
+            "Local Docker demo: English documents and queries only. "
+            "Inference uses local containers; Azure billing connectivity is still required. "
+            "Arabic enrichment is not supported by this container stack."
+        )
     
     # Sidebar Configuration
     with st.sidebar:

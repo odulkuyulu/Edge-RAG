@@ -509,6 +509,12 @@ def enhanced_index_document(file_path: str, content: Union[str, bytes],
 if __name__ == "__main__":
     # Enhanced indexing of all documents
     from indexer import load_documents
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--english-only", action="store_true",
+                        help="Skip non-English documents before enrichment")
+    args = parser.parse_args()
     
     print("🚀 Starting Enhanced Document Indexing...")
     
@@ -517,13 +523,26 @@ if __name__ == "__main__":
         print("No documents found in data/ folder")
         exit()
     
+    failed = False
     for i, doc in enumerate(docs, 1):
         print(f"\n[{i}/{len(docs)}] Processing: {doc['filename']}")
+        if args.english_only:
+            text = doc["text"]
+            if doc["filename"].lower().endswith(".pdf"):
+                text = process_with_document_intelligence(
+                    os.path.join("data", doc["filename"])
+                )["text"]
+            if detect_language(text) != "english":
+                print(f"Skipped '{doc['filename']}': English-only indexing selected")
+                continue
         success = enhanced_index_document(doc["filename"], doc["text"], embed_model="bge-m3")
         
         if success:
             print(f"✅ Enhanced indexing successful for '{doc['filename']}'")
         else:
             print(f"❌ Enhanced indexing failed for '{doc['filename']}'")
+            failed = True
     
     print("\n🎉 Enhanced Document Indexing Complete!")
+    if args.english_only and failed:
+        raise SystemExit(1)

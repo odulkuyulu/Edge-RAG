@@ -6,6 +6,7 @@ from qdrant_client.models import PointStruct, VectorParams
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.textanalytics import TextAnalyticsClient
+import container_language
 
 load_dotenv()
 
@@ -28,10 +29,16 @@ DEFAULT_EMBED_MODEL = os.getenv("EMBEDDING_MODEL", "bge-m3")
 
 # ---------- Azure clients ----------
 try:
-    di_client = DocumentAnalysisClient(AZURE_DOC_INTEL_ENDPOINT, AzureKeyCredential(AZURE_DOC_INTEL_KEY))
+    di_client = DocumentAnalysisClient(
+        AZURE_DOC_INTEL_ENDPOINT,
+        AzureKeyCredential(AZURE_DOC_INTEL_KEY),
+        api_version=os.getenv("AZURE_DOCUMENT_INTELLIGENCE_API_VERSION", "2023-07-31"),
+    )
     HAS_DI = True
 except Exception as e:
     print(f"Warn: Document Intelligence unavailable: {e}")
+    if container_language.enabled():
+        raise
     HAS_DI = False
     di_client = None
 
@@ -54,6 +61,8 @@ def ensure_collection(client: QdrantClient, language: str, embed_model: str, fir
     return name
 
 def detect_language(text: str) -> str:
+    if container_language.enabled():
+        return container_language.detect_language(text)["language"]
     try:
         base = AZURE_LANGUAGE_ENDPOINT.rstrip("/")
         r = requests.post(
@@ -75,6 +84,8 @@ def generate_embedding(text: str, language: str, model: str, role: str="passage"
     return resp["embedding"]
 
 def extract_entities(text: str, language: str) -> List[Dict[str,str]]:
+    if container_language.enabled():
+        return container_language.extract_entities(text, language)
     try:
         base = AZURE_LANGUAGE_ENDPOINT.rstrip("/")
         r = requests.post(
@@ -91,6 +102,8 @@ def extract_entities(text: str, language: str) -> List[Dict[str,str]]:
     return []
 
 def extract_key_phrases(text: str, language: str) -> List[str]:
+    if container_language.enabled():
+        return container_language.extract_key_phrases(text, language)
     try:
         client_ta = TextAnalyticsClient(endpoint=AZURE_LANGUAGE_ENDPOINT, credential=AzureKeyCredential(AZURE_LANGUAGE_KEY))
         lang = "ar" if language=="arabic" else "en"
@@ -104,6 +117,8 @@ def extract_key_phrases(text: str, language: str) -> List[str]:
         return []
 
 def analyze_sentiment(text: str, language: str) -> Dict[str,float]:
+    if container_language.enabled():
+        return container_language.analyze_sentiment(text, language)
     try:
         client_ta = TextAnalyticsClient(endpoint=AZURE_LANGUAGE_ENDPOINT, credential=AzureKeyCredential(AZURE_LANGUAGE_KEY))
         lang = "ar" if language=="arabic" else "en"
@@ -215,9 +230,13 @@ def process_with_document_intelligence(file_path: str) -> Dict[str,Any]:
                 print(f"[PDF] Azure DI extracted {len(res.content)} characters from '{file_path}'")
                 return out
             else:
+                if container_language.enabled():
+                    raise RuntimeError("Local Document Intelligence returned insufficient text")
                 print(f"[PDF] Azure DI returned minimal text ({len(res.content if res.content else 0)} chars), trying fallback")
         except Exception as e:
             print(f"[PDF] Azure DI failed: {e}")
+            if container_language.enabled():
+                raise
     
     # 2. Try PyPDF2 for text-based PDFs
     try:
