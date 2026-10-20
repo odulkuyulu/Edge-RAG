@@ -415,7 +415,7 @@ def enhanced_index_document(file_path: str, content: Union[str, bytes],
 
         # Get text content
         if file_path.lower().endswith(".pdf"):
-            full_path = os.path.join("data", file_path) if not os.path.isabs(file_path) else file_path
+            full_path = file_path if os.path.isabs(file_path) or os.path.exists(file_path) else os.path.join("data", file_path)
             di = process_with_document_intelligence(full_path)
             text = di["text"]
             metadata.update(di)

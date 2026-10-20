@@ -365,8 +365,8 @@ def index_document(file_path: str, content: Union[str,bytes], metadata: Dict[str
 
         # get text (PDF via DI, others directly)
         if file_path.lower().endswith(".pdf"):
-            # Always use full path for PDFs in data folder
-            full_path = os.path.join("data", file_path) if not os.path.isabs(file_path) else file_path
+            # Use the path as given (e.g. uploads saved to temp/); resolve bare names against data/
+            full_path = file_path if os.path.isabs(file_path) or os.path.exists(file_path) else os.path.join("data", file_path)
             di = process_with_document_intelligence(full_path)
             text = di["text"]
             print(f"[INDEXER DEBUG] Extracted text length from PDF '{file_path}': {len(text) if text else 0}")
