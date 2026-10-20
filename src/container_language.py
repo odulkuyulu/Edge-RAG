@@ -57,7 +57,8 @@ def analyze(feature: str, text: str, language: str = "english") -> Dict[str, Any
 
 
 def detect_language(text: str) -> Dict[str, Any]:
-    detected = analyze("languages", text)["detectedLanguage"]
+    # The service rejects documents over 5,120 text elements; the opening is enough to detect the language.
+    detected = analyze("languages", text[:5000])["detectedLanguage"]
     return {
         "language": "arabic" if detected["iso6391Name"] == "ar" else "english",
         "confidence": detected["confidenceScore"],
